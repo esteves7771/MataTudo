@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 5</title>
+<title>MataTudo — Alpha 6</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; background:#0b1220; color:#fff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
@@ -21,14 +21,14 @@
 <body>
 <div class="wrap">
   <div class="panel">
-    <div class="title">MataTudo — Alpha 5</div>
+    <div class="title">MataTudo — Alpha 6</div>
     <canvas id="game" width="900" height="560"></canvas>
     <div class="row">
       <button id="pause" class="btn">Pause</button>
       <button id="mute" class="btn">Mute</button>
       <label>Vol <input id="vol" type="range" min="0" max="1" step="0.05" value="0.7"></label>
     </div>
-    <div class="hint">WASD/Arrows move • Mouse aims • Click shoots • Any Key/Click starts • R restarts • M mutes</div>
+    <div class="hint">WASD/Arrows move • Mouse aims • Click shoots • Any Key/Click starts • <b>R</b> restarts • <b>M</b> mutes</div>
   </div>
 </div>
 
@@ -51,6 +51,48 @@
   const rectOverAny = (rect, arr) => arr.some(o => !(rect.x + rect.w < o.x || rect.x > o.x + o.w || rect.y + rect.h < o.y || rect.y > o.y + o.h));
   const rectCircleOverlap = (cx, cy, r, o) => { const nx = clamp(cx, o.x, o.x + o.w), ny = clamp(cy, o.y, o.y + o.h); const dx = cx - nx, dy = cy - ny; return dx*dx + dy*dy <= r*r; };
   const bulletHitsObstacle = (b, o) => (b.x + b.r > o.x && b.x - b.r < o.x + o.w && b.y + b.r > o.y && b.y - b.r < o.y + o.h);
+
+  // Minimal push-out to resolve circle/rect overlap
+  function pushCircleOutOfRect(e, o){
+    const {x:cx, y:cy, r} = e;
+    const nx = clamp(cx, o.x, o.x + o.w), ny = clamp(cy, o.y, o.y + o.h);
+    let dx = cx - nx, dy = cy - ny;
+    let dist = Math.hypot(dx,dy);
+    if (dist === 0){
+      // Center exactly at corner/edge; push toward least-penetration side
+      const left = Math.abs(cx - o.x), right = Math.abs((o.x + o.w) - cx);
+      const top = Math.abs(cy - o.y), bottom = Math.abs((o.y + o.h) - cy);
+      const m = Math.min(left,right,top,bottom);
+      if (m === left) dx = -1, dy = 0;
+      else if (m === right) dx = 1, dy = 0;
+      else if (m === top) dx = 0, dy = -1;
+      else dx = 0, dy = 1;
+      dist = 1;
+    }
+    const overlap = r - dist;
+    if (overlap > 0){
+      const ux = dx / dist, uy = dy / dist;
+      e.x += ux * (overlap + 0.5);
+      e.y += uy * (overlap + 0.5);
+      e.x = clamp(e.x, MAP_MARGIN + r, W - MAP_MARGIN - r);
+      e.y = clamp(e.y, MAP_MARGIN + r, H - MAP_MARGIN - r);
+      return true;
+    }
+    return false;
+  }
+  function resolveAllOverlaps(s){
+    // Resolve for player and each bot against all obstacles (a few passes)
+    const passes = 3;
+    for (let k=0;k<passes;k++){
+      // Player
+      s.obstacles.forEach(o => { if (rectCircleOverlap(s.player.x, s.player.y, s.player.r, o)) pushCircleOutOfRect(s.player, o); });
+      // Bots
+      s.bots.forEach(b => {
+        s.obstacles.forEach(o => { if (rectCircleOverlap(b.x,b.y,b.r,o)) pushCircleOutOfRect(b,o); });
+      });
+    }
+  }
+
   const posIsFree = (x, y, r, s) => {
     if (x < MAP_MARGIN + r || x > W - MAP_MARGIN - r || y < MAP_MARGIN + r || y > H - MAP_MARGIN - r) return false;
     if (rectOverAny({ x: x - r, y: y - r, w: r*2, h: r*2 }, s.obstacles)) return false;
@@ -74,7 +116,14 @@
     }
   }
   function setVolume(x){ if (audio.master) audio.master.gain.value = x; if (audio.music) audio.music.volume = audio.muted ? 0 : x; }
-  function toggleMute(){ audio.muted = !audio.muted; btnMute.textContent = audio.muted ? "Unmute" : "Mute"; setVolume(audio.muted ? 0 : parseFloat(vol.value)); if (audio.muted && audio.music) audio.music.pause(); }
+  function toggleMute(){
+    audio.muted = !audio.muted;
+    btnMute.textContent = audio.muted ? "Unmute" : "Mute";
+    setVolume(audio.muted ? 0 : parseFloat(vol.value));
+    if (audio.muted && audio.music) audio.music.pause();
+    // If unmuted and we're in playing mode, resume music
+    if (!audio.muted && audio.music && s.mode === 'playing') audio.music.play().catch(()=>{});
+  }
   vol.addEventListener('input', () => setVolume(parseFloat(vol.value)));
   btnMute.addEventListener('click', toggleMute);
   document.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'm') toggleMute(); });
@@ -90,12 +139,10 @@
   function noiseBurst(dur=0.25, gain=0.05){
     if (audio.muted) return; ensureAC(); if (!audio.ctx) return;
     const ac = audio.ctx, buf = ac.createBuffer(1,ac.sampleRate*dur,ac.sampleRate), data = buf.getChannelData(0);
-    for (let i=0;i<data.length;i++) data[i] = (Math.random()*2-1)*0.6;
-    const src = ac.createBufferSource(); src.buffer = buf;
-    const g = ac.createGain(); g.gain.value = gain;
-    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200;
+    for (let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*0.6;
+    const src = ac.createBufferSource(); src.buffer = buf; const g = ac.createGain(); g.gain.value = gain; const lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1200;
     src.connect(lp).connect(g).connect(audio.sfxGain);
-    const now = ac.currentTime; g.gain.setValueAtTime(gain, now); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    const now=ac.currentTime; g.gain.setValueAtTime(gain,now); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
     src.start(now);
   }
   const SFX = {
@@ -140,7 +187,7 @@
   try { const saved = localStorage.getItem('matatudo_best'); if (saved) s.bestScore = parseInt(saved, 10) || 0; } catch {}
 
   // Pattern
-  (function(){
+  ;(function(){
     const pc = document.createElement('canvas'); pc.width=64; pc.height=64;
     const pg = pc.getContext('2d');
     pg.fillStyle='#27303a'; pg.fillRect(0,0,64,64);
@@ -191,7 +238,12 @@
     const t = clamp(s.obstacleFadeT / DUR, 0, 1);
     if (s.obstaclePhase==='fadeOut'){
       s.obstacleAlpha = 1 - t;
-      if (s.obstacleFadeT >= DUR){ s.obstacles = randomObstacles(); s.obstaclePhase='fadeIn'; s.obstacleFadeT = 0; }
+      if (s.obstacleFadeT >= DUR){
+        s.obstacles = randomObstacles();
+        // NEW: push-out after swapping obstacles
+        resolveAllOverlaps(s);
+        s.obstaclePhase='fadeIn'; s.obstacleFadeT = 0;
+      }
     } else {
       s.obstacleAlpha = t;
       if (s.obstacleFadeT >= DUR){ s.obstaclePhase='stable'; s.obstacleAlpha=1; }
@@ -294,22 +346,33 @@
     let nx = clamp(p.x + mvx, MAP_MARGIN+p.r, W-MAP_MARGIN-p.r); if (!s.obstacles.some(o=>rectCircleOverlap(nx,p.y,p.r,o))) p.x = nx;
     let ny = clamp(p.y + mvy, MAP_MARGIN+p.r, H-MAP_MARGIN-p.r); if (!s.obstacles.some(o=>rectCircleOverlap(p.x,ny,p.r,o))) p.y = ny;
 
-    // shooting
+    // shooting (DOUBLE-SHOT at Level 2+)
     p.fireCooldown -= dt;
     if (s.mouse.down && p.fireCooldown<=0){
       const dx = s.mouse.x - p.x, dy = s.mouse.y - p.y, d = Math.hypot(dx,dy) || 1;
-      s.bullets.push({ x:p.x, y:p.y, vx:dx/d*520, vy:dy/d*520, r:3, owner:'player', life:2 });
-      const ang = Math.atan2(dy,dx); spawnParticles(p.x+Math.cos(ang)*p.r, p.y+Math.sin(ang)*p.r, '#fff8', 6, 1.6);
+      const baseAng = Math.atan2(dy,dx);
+
+      if (s.level >= 2) {
+        const spread = 0.07; // radians
+        const a1 = baseAng - spread/2;
+        const a2 = baseAng + spread/2;
+        s.bullets.push({ x:p.x, y:p.y, vx:Math.cos(a1)*520, vy:Math.sin(a1)*520, r:3, owner:'player', life:2 });
+        s.bullets.push({ x:p.x, y:p.y, vx:Math.cos(a2)*520, vy:Math.sin(a2)*520, r:3, owner:'player', life:2 });
+      } else {
+        s.bullets.push({ x:p.x, y:p.y, vx:dx/d*520, vy:dy/d*520, r:3, owner:'player', life:2 });
+      }
+
+      const ang = baseAng; spawnParticles(p.x+Math.cos(ang)*p.r, p.y+Math.sin(ang)*p.r, '#fff8', 6, 1.6);
       p.flashTimer = 0.07; p.fireCooldown = 0.15; SFX.shot();
     }
 
     // bots
     s.bots.forEach(b => {
-      b.jitter += dt*2.2;
+      b.jitter = (b.jitter||0) + dt*2.2;
       const a0 = Math.atan2(p.y-b.y, p.x-b.x) + Math.sin(b.jitter)*0.25;
       const totalDx = Math.cos(a0)*b.speed*dt, totalDy = Math.sin(a0)*b.speed*dt;
       const steps = Math.max(1, Math.ceil(Math.hypot(totalDx,totalDy) / Math.max(1, b.r*0.6)));
-      const stepX = totalDx/steps, stepY = totalDy/steps;
+      const stepX=totalDx/steps, stepY=totalDy/steps;
       for (let i=0;i<steps;i++){
         let tx = b.x + stepX, ty = b.y;
         if (!s.obstacles.some(o=>rectCircleOverlap(tx,b.y,b.r,o))) b.x = clamp(tx, MAP_MARGIN+b.r, W-MAP_MARGIN-b.r);
@@ -318,8 +381,7 @@
       }
       b.fireCooldown -= dt;
       if (b.fireCooldown<=0){
-        const dx = p.x - b.x, dy = p.y - b.y;
-        const aa = Math.atan2(dy,dx) + (Math.random()-0.5)*0.18;
+        const dx=p.x-b.x, dy=p.y-b.y; const aa = Math.atan2(dy,dx) + (Math.random()-0.5)*0.18;
         s.bullets.push({ x:b.x, y:b.y, vx:Math.cos(aa)*360, vy:Math.sin(aa)*360, r:3, owner:'bot', life:2 });
         b.fireCooldown = b.shootEvery * Math.max(0.6, 1 - 0.05*(s.level-1));
       }
@@ -478,9 +540,10 @@
     const k = e.key.toLowerCase();
     if (!e.repeat) s.keys[k] = true;
     if (k==='m'){ toggleMute(); return; }
+    if (k==='r'){ startGame(); return; } // NEW: restart from any state
     if (s.mode==='intro'){ s.mode='menu'; stopMusic(); return; }
     if (s.mode==='menu'){ startGame(); return; }
-    if (s.mode==='gameover' && k==='r'){ startGame(); return; }
+    if (s.mode==='gameover'){ startGame(); return; }
   });
   window.addEventListener('keyup', e => { s.keys[e.key.toLowerCase()] = false; });
 
