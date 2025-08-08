@@ -1,0 +1,395 @@
+import React, { useRef, useEffect, useState } from 'react';
+
+// MataTudo — MiniShooter full build (with simple WebAudio SFX + Intro)
+// Changes in this patch:
+// - Added INTRO state (quick splash → auto to MENU, press any key/click to skip)
+// - Added simple WebAudio: menu beeps, shot, hit, heal, death; toggle mute with 'M'
+// - Hardened bot collision vs obstacles (micro-steps with axis separation) to stop wall clipping
+// - Kept: menu → countdown → playing → gameover, score/best score, progressive first wave,
+//         elite every 20 kills, medkits every 30 kills, soldier with weapon + muzzle flash
+
+export default function MiniShooter() {
+  const canvasRef = useRef(null);
+  const [mounted, setMounted] = useState(false);
+  const [muted, setMuted] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // Constants / helpers
+  const W = 900, H = 560, MAP_MARGIN = 12;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const dist2 = (ax, ay, bx, by) => { const dx=ax-bx, dy=ay-by; return dx*dx + dy*dy; };
+  const rectCircleOverlap = (cx, cy, r, o) => {
+    const nx = clamp(cx, o.x, o.x + o.w);
+    const ny = clamp(cy, o.y, o.y + o.h);
+    const dx = cx - nx; const dy = cy - ny;
+    return dx*dx + dy*dy <= r*r;
+  };
+  const bulletHitsObstacle = (b, o) => (
+    b.x + b.r > o.x && b.x - b.r < o.x + o.w &&
+    b.y + b.r > o.y && b.y - b.r < o.y + o.h
+  );
+  const posIsFree = (x, y, r, s) => {
+    if (x < MAP_MARGIN + r || x > W - MAP_MARGIN - r || y < MAP_MARGIN + r || y > H - MAP_MARGIN - r) return false;
+    if (s.obstacles.some(o => rectCircleOverlap(x, y, r, o))) return false;
+    if (Math.hypot(x - s.player.x, y - s.player.y) < 80) return false;
+    return true;
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+
+    // -------------------------- State --------------------------
+    const s = {
+      ctx,
+      time: 0,
+      lastTime: 0,
+      mode: 'intro', // 'intro' | 'menu' | 'countdown' | 'playing' | 'gameover'
+      introTime: 0,
+      countdown: 2,
+      player: { x: W/2, y: H/2, r: 12, speed: 240, hp: 100, fireCooldown: 0, flashTimer: 0, hitCooldown: 0 },
+      keys: {},
+      mouse: { x: W/2, y: H/2, down: false },
+      bullets: [], // {x,y,vx,vy,r,owner,life}
+      bots: [],    // {x,y,r,speed,hp,fireCooldown,shootEvery,jitter,elite}
+      particles: [], // {x,y,vx,vy,life,color,size}
+      medkits: [],   // {x,y,r,timeLeft}
+      obstacles: [
+        { x: 280, y: 180, w: 90, h: 90 },
+        { x: 610, y: 340, w: 120, h: 70 },
+        { x: 440, y:  90, w: 70,  h: 70 },
+        { x: 120, y: 400, w: 140, h: 40 },
+      ],
+      groundPattern: null,
+      spawnTimer: 0,
+      score: 0,
+      bestScore: Number(localStorage.getItem('matatudo_best')) || 0,
+      lastMedkitAtScore: 0,
+      lastEliteAtScore: 0,
+      firstWaveRemaining: 4,
+      firstWaveInterval: 0.4,
+      firstWaveTimer: 0.4,
+      // audio
+      audio: { ctx: null, master: null, vol: 0.7, musicTimer: null }
+    };
+
+    // -------------------- Ground pattern ----------------------
+    (function(){
+      const pc = document.createElement('canvas'); pc.width=64; pc.height=64;
+      const pg = pc.getContext('2d');
+      pg.fillStyle = '#27303a'; pg.fillRect(0,0,64,64);
+      for (let i=0;i<140;i++) { pg.fillStyle = `rgba(255,255,255,${0.06 + Math.random()*0.06})`; pg.fillRect(Math.random()*64, Math.random()*64, 1, 1); }
+      pg.strokeStyle='rgba(0,0,0,0.12)';
+      for (let x=0;x<=64;x+=16){ pg.beginPath(); pg.moveTo(x,0); pg.lineTo(x,64); pg.stroke(); }
+      for (let y=0;y<=64;y+=16){ pg.beginPath(); pg.moveTo(0,y); pg.lineTo(64,y); pg.stroke(); }
+      s.groundPattern = ctx.createPattern(pc, 'repeat');
+    })();
+
+    // ------------------------- Audio --------------------------
+    const ensureAudio = () => {
+      if (muted) return; // hard mute
+      if (!s.audio.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+        const ac = new AC(); const master = ac.createGain(); master.gain.value = s.audio.vol; master.connect(ac.destination);
+        s.audio.ctx = ac; s.audio.master = master;
+      } else if (s.audio.ctx.state === 'suspended') {
+        s.audio.ctx.resume();
+      }
+    };
+    const quickBeep = (freq=800, dur=0.06, type='square', gain=0.03) => {
+      if (muted) return; ensureAudio(); const a=s.audio; if (!a.ctx||!a.master) return;
+      const ac=a.ctx, osc=ac.createOscillator(), g=ac.createGain(); osc.type=type; osc.frequency.value=freq; g.gain.value=gain; osc.connect(g).connect(a.master);
+      const now=ac.currentTime; g.gain.setValueAtTime(gain,now); g.gain.exponentialRampToValueAtTime(0.0001,now+dur); osc.start(now); osc.stop(now+dur);
+    };
+    const noiseBurst = (dur=0.25, gain=0.05) => {
+      if (muted) return; ensureAudio(); const a=s.audio; if (!a.ctx||!a.master) return;
+      const ac=a.ctx; const buf=ac.createBuffer(1,ac.sampleRate*dur,ac.sampleRate), data=buf.getChannelData(0);
+      for (let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*0.6;
+      const src=ac.createBufferSource(); src.buffer=buf; const g=ac.createGain(); g.gain.value=gain; const lp=ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1200;
+      src.connect(lp).connect(g).connect(a.master); const now=ac.currentTime; g.gain.setValueAtTime(gain,now); g.gain.exponentialRampToValueAtTime(0.0001,now+dur); src.start(now);
+    };
+    const sfxShot = () => quickBeep(1100, 0.045, 'square', 0.03);
+    const sfxHit  = () => quickBeep(280,  0.06,  'sine',   0.02);
+    const sfxHeal = () => quickBeep(900,  0.12,  'triangle',0.035);
+    const sfxDeath = (i=0.4) => { noiseBurst(0.22+0.15*i,0.04+0.06*i); quickBeep(200,0.3+0.15*i,'sawtooth',0.02+0.04*i); };
+
+    const startMenuMusic = () => {
+      if (muted) return; ensureAudio(); if (s.audio.musicTimer) return;
+      let idx=0; const pattern=[660,880,660,495,660,990,660,495];
+      s.audio.musicTimer = setInterval(()=>{ quickBeep(pattern[idx%pattern.length],0.08,'square',0.03); idx++; }, 220);
+    };
+    const stopMenuMusic = () => { if (s.audio.musicTimer) { clearInterval(s.audio.musicTimer); s.audio.musicTimer=null; } };
+
+    // ------------------------- Spawners ------------------------
+    const spawnParticles = (x,y,color,count,size=2) => {
+      for (let i=0;i<count;i++){
+        const a = Math.random()*Math.PI*2; const v = 40 + Math.random()*80;
+        s.particles.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v, life: 0.4 + Math.random()*0.4, color, size });
+      }
+    };
+
+    const spawnBot = (elite=false) => {
+      // Spawn from edges, retry to avoid walls and player
+      let tries = 0, x=0, y=0, r = elite?16:12;
+      while (tries++ < 40) {
+        const edge = Math.floor(Math.random()*4);
+        if (edge===0){ x = MAP_MARGIN + r + 2; y = Math.random()*(H-2*MAP_MARGIN) + MAP_MARGIN; }
+        else if(edge===1){ x = W - MAP_MARGIN - r - 2; y = Math.random()*(H-2*MAP_MARGIN) + MAP_MARGIN; }
+        else if(edge===2){ x = Math.random()*(W-2*MAP_MARGIN) + MAP_MARGIN; y = MAP_MARGIN + r + 2; }
+        else { x = Math.random()*(W-2*MAP_MARGIN) + MAP_MARGIN; y = H - MAP_MARGIN - r - 2; }
+        if (posIsFree(x,y,r,s)) break;
+      }
+      const hp = elite?200:40;
+      const shootEvery = (0.9 + Math.random()*0.9) * (elite?0.85:1);
+      s.bots.push({ x, y, r, speed: (80+Math.random()*35)*(elite?0.9:1), hp, fireCooldown: 0, shootEvery, jitter: Math.random()*Math.PI*2, elite });
+    };
+
+    const trySpawnMedkit = () => {
+      if (s.score>0 && s.score%30===0 && s.lastMedkitAtScore!==s.score) {
+        for (let i=0;i<60;i++){
+          const r=10; const x=MAP_MARGIN+r + Math.random()*(W-2*(MAP_MARGIN+r)); const y=MAP_MARGIN+r + Math.random()*(H-2*(MAP_MARGIN+r));
+          if (!posIsFree(x,y,r,s)) continue;
+          s.medkits.push({ x, y, r, timeLeft: 20 }); s.lastMedkitAtScore = s.score; break;
+        }
+      }
+    };
+
+    const startGame = () => {
+      s.player = { x: W/2, y: H/2, r: 12, speed: 240, hp: 100, fireCooldown: 0, flashTimer: 0, hitCooldown: 0 };
+      s.bullets=[]; s.bots=[]; s.particles=[]; s.medkits=[];
+      s.spawnTimer=0; s.score=0; s.lastEliteAtScore=0; s.lastMedkitAtScore=0;
+      s.firstWaveRemaining=4; s.firstWaveTimer=s.firstWaveInterval;
+      s.mode='countdown'; s.countdown=2; stopMenuMusic();
+    };
+
+    // ----------------------- Update & Draw ---------------------
+    const update = (dt) => {
+      s.time += dt;
+      if (s.mode==='intro') { s.introTime += dt; if (s.introTime>1.6) { s.mode='menu'; startMenuMusic(); } return; }
+      if (s.mode==='menu') { return; }
+      if (s.mode==='countdown') { s.countdown -= dt; if (s.countdown<=0) { s.mode='playing'; startMenuMusic(); } return; }
+      if (s.mode!=='playing') return;
+
+      // Spawn pacing
+      s.spawnTimer -= dt;
+      if (s.spawnTimer<=0) { spawnBot(false); s.spawnTimer = Math.max(0.6, 1.6 - Math.min(60, s.score/5)*0.01); }
+      if (s.firstWaveRemaining>0) {
+        s.firstWaveTimer -= dt;
+        if (s.firstWaveTimer<=0) { spawnBot(false); s.firstWaveRemaining--; s.firstWaveTimer = s.firstWaveInterval; }
+      }
+      if (s.score>0 && s.score%20===0 && s.lastEliteAtScore!==s.score) { spawnBot(true); s.lastEliteAtScore=s.score; }
+
+      // Player movement
+      const p = s.player; p.hitCooldown = Math.max(0, p.hitCooldown - dt); p.flashTimer = Math.max(0, p.flashTimer - dt);
+      let ix=0, iy=0; if (s.keys['w']||s.keys['arrowup']) iy--; if (s.keys['s']||s.keys['arrowdown']) iy++; if (s.keys['a']||s.keys['arrowleft']) ix--; if (s.keys['d']||s.keys['arrowright']) ix++;
+      const mag = Math.hypot(ix,iy) || 1; const mvx = ix/mag * p.speed * dt; const mvy = iy/mag * p.speed * dt;
+      // axis separated + bounds
+      let nx = clamp(p.x + mvx, MAP_MARGIN+p.r, W-MAP_MARGIN-p.r); if (!s.obstacles.some(o=>rectCircleOverlap(nx,p.y,p.r,o))) p.x = nx;
+      let ny = clamp(p.y + mvy, MAP_MARGIN+p.r, H-MAP_MARGIN-p.r); if (!s.obstacles.some(o=>rectCircleOverlap(p.x,ny,p.r,o))) p.y = ny;
+
+      // Shooting (mouse hold)
+      p.fireCooldown -= dt;
+      if (s.mouse.down && p.fireCooldown<=0) {
+        ensureAudio();
+        const dx = s.mouse.x - p.x; const dy = s.mouse.y - p.y; const d = Math.hypot(dx,dy) || 1;
+        s.bullets.push({ x:p.x, y:p.y, vx:dx/d*520, vy:dy/d*520, r:3, owner:'player', life:2 });
+        const ang = Math.atan2(dy,dx); spawnParticles(p.x+Math.cos(ang)*p.r, p.y+Math.sin(ang)*p.r, '#fff8', 6, 1.6);
+        p.flashTimer = 0.07; p.fireCooldown = 0.15; sfxShot();
+      }
+
+      // Bots: pursue + micro-step collision + fire
+      s.bots.forEach(b => {
+        b.jitter += dt*2.2;
+        const baseAng = Math.atan2(p.y-b.y, p.x-b.x) + Math.sin(b.jitter)*0.25;
+        const totalDx = Math.cos(baseAng)*b.speed*dt, totalDy = Math.sin(baseAng)*b.speed*dt;
+        const steps = Math.max(1, Math.ceil(Math.hypot(totalDx,totalDy) / Math.max(1, b.r*0.6)));
+        const stepX = totalDx/steps, stepY = totalDy/steps;
+        for (let i=0;i<steps;i++){
+          let tryX = b.x + stepX; let tryY = b.y; // X axis
+          if (!s.obstacles.some(o=>rectCircleOverlap(tryX,b.y,b.r,o))) b.x = clamp(tryX, MAP_MARGIN+b.r, W-MAP_MARGIN-b.r);
+          tryY = b.y + stepY; // Y axis
+          if (!s.obstacles.some(o=>rectCircleOverlap(b.x,tryY,b.r,o))) b.y = clamp(tryY, MAP_MARGIN+b.r, H-MAP_MARGIN-b.r);
+        }
+        // shooting
+        b.fireCooldown -= dt;
+        if (b.fireCooldown<=0) {
+          const dx = p.x - b.x, dy = p.y - b.y; const aa = Math.atan2(dy,dx) + (Math.random()-0.5)*0.18;
+          s.bullets.push({ x:b.x, y:b.y, vx:Math.cos(aa)*360, vy:Math.sin(aa)*360, r:3, owner:'bot', life:2 });
+          b.fireCooldown = b.shootEvery;
+        }
+      });
+
+      // Bullets move & collide with walls
+      s.bullets.forEach(b=>{ b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt; });
+      s.bullets = s.bullets.filter(b => b.life>0 && b.x>-10 && b.x<W+10 && b.y>-10 && b.y<H+10 && !s.obstacles.some(o=>bulletHitsObstacle(b,o)) );
+
+      // Player hit by bot bullets (rate-limited)
+      s.bullets.forEach(b=>{
+        if (b.owner==='bot' && Math.hypot(b.x-p.x,b.y-p.y) < b.r + p.r) {
+          if (p.hitCooldown<=0) { p.hp -= 10; p.hitCooldown = 0.35; spawnParticles(p.x,p.y,'#f00',8,2.2); sfxHit(); }
+          b.life = 0;
+        }
+      });
+
+      // Bullets vs bots & scoring
+      s.bots = s.bots.filter(b => {
+        let alive = true;
+        s.bullets.forEach(proj => {
+          if (proj.owner==='player' && Math.hypot(b.x-proj.x,b.y-proj.y) < (b.r+proj.r)) {
+            b.hp -= 25; proj.life = 0; spawnParticles(b.x,b.y,'#f33',10,2); sfxHit();
+            if (b.hp<=0) { alive = false; s.score++; const over = -b.hp; const extra = 20 + Math.min(40, Math.max(0, Math.round(over*1.2))); spawnParticles(b.x,b.y,b.elite?'#ffd372':'#ff7b72', extra, 3); sfxDeath(Math.min(1, over/50)); }
+          }
+        });
+        return alive;
+      });
+
+      // Player touch damage (rate-limited)
+      s.bots.forEach(b => {
+        if (Math.hypot(b.x-p.x,b.y-p.y) < b.r + p.r) {
+          if (p.hitCooldown<=0) { p.hp -= 10; p.hitCooldown = 0.35; spawnParticles(p.x,p.y,'#f00',8,2.2); sfxHit(); }
+        }
+      });
+
+      // Medkits
+      trySpawnMedkit();
+      s.medkits.forEach(m=> m.timeLeft -= dt);
+      s.medkits = s.medkits.filter(m => {
+        if (m.timeLeft<=0) return false;
+        if (Math.hypot(m.x - p.x, m.y - p.y) < m.r + p.r) {
+          p.hp = Math.min(100, p.hp + 30); spawnParticles(m.x,m.y,'#8cff8c',18,2.6); sfxHeal(); return false;
+        }
+        return true;
+      });
+
+      // Particles
+      s.particles.forEach(pt => { pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.life-=dt; });
+      s.particles = s.particles.filter(pt => pt.life>0);
+
+      // Game over
+      if (p.hp<=0) {
+        s.mode = 'gameover'; stopMenuMusic();
+        if (s.score > s.bestScore) { s.bestScore = s.score; localStorage.setItem('matatudo_best', String(s.bestScore)); }
+      }
+    };
+
+    const drawSoldier = (ctx,x,y,ang,r,flash) => {
+      ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
+      // shadow
+      ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,r*0.9,r*0.9,r*0.4,0,0,Math.PI*2); ctx.fill();
+      // torso
+      const g=ctx.createRadialGradient(0,-r*0.2,r*0.2,0,0,r*1.05); g.addColorStop(0,'#34d27a'); g.addColorStop(1,'#228d4e');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
+      // helmet & brim
+      ctx.fillStyle='#1e824c'; ctx.beginPath(); ctx.arc(0,-r*0.3,r*0.95,Math.PI,0); ctx.fill();
+      ctx.fillStyle='#145a32'; ctx.fillRect(-r,-r*0.3,r*2,r*0.15);
+      // arms
+      ctx.fillStyle='#2ecc71'; ctx.fillRect(-r*1.2,-r*0.4,r*0.4,r*1.2); ctx.fillRect(r*0.8,-r*0.4,r*0.4,r*1.2);
+      // weapon
+      ctx.fillStyle='#dcdcdc'; ctx.fillRect(0,-3,r+14,6); // barrel
+      ctx.fillStyle='#555'; ctx.fillRect(r+14,-2,4,4);    // muzzle block
+      if (flash>0){ ctx.fillStyle='rgba(255,240,120,0.9)'; ctx.beginPath(); ctx.ellipse(r+20,0,7,3.5,0,0,Math.PI*2); ctx.fill(); }
+      ctx.restore();
+    };
+
+    const draw = () => {
+      const ctx = s.ctx;
+      ctx.fillStyle = s.groundPattern || '#0b1220'; ctx.fillRect(0,0,W,H);
+      // border
+      ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.strokeRect(MAP_MARGIN,MAP_MARGIN,W-2*MAP_MARGIN,H-2*MAP_MARGIN);
+      // obstacles
+      s.obstacles.forEach(o=>{ ctx.fillStyle='#4b5563'; ctx.fillRect(o.x,o.y,o.w,o.h); });
+      // medkits (blink final 5s)
+      s.medkits.forEach(m=>{ const blink = m.timeLeft<5 ? Math.floor(m.timeLeft*10)%2===0 : true; if(!blink) return; const r=m.r; ctx.fillStyle='#e5f7ff'; ctx.fillRect(m.x-r,m.y-r,r*2,r*2); ctx.strokeStyle='#94a3b8'; ctx.strokeRect(m.x-r+0.5,m.y-r+0.5,r*2-1,r*2-1); ctx.fillStyle='#e11d48'; ctx.fillRect(m.x-r*0.25,m.y-r*0.8,r*0.5,r*1.6); ctx.fillRect(m.x-r*0.8,m.y-r*0.25,r*1.6,r*0.5); });
+      // player
+      const p=s.player; const ang = Math.atan2(s.mouse.y-p.y,s.mouse.x-p.x); drawSoldier(ctx,p.x,p.y,ang,p.r,p.flashTimer);
+      // bots
+      s.bots.forEach(b=>{ ctx.fillStyle=b.elite?'#f0c420':'#ff7b72'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); // hp ring
+        ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=2; ctx.beginPath(); const frac=Math.max(0,b.hp)/(b.elite?200:40); ctx.arc(b.x,b.y,b.r+4,-Math.PI/2,-Math.PI/2+frac*Math.PI*2); ctx.stroke(); });
+      // bullets
+      s.bullets.forEach(b=>{ ctx.fillStyle = b.owner==='player'?'#e6ff71':'#ffa8a3'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); });
+      // particles
+      s.particles.forEach(pt=>{ ctx.fillStyle=pt.color; ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill(); });
+      // HUD
+      ctx.fillStyle='#fff'; ctx.font='14px ui-sans-serif,system-ui'; ctx.fillText(`Score: ${s.score}`, 12, 20); ctx.fillText(`HP: ${Math.max(0,p.hp)}`, 12, 40);
+      // overlays
+      ctx.textAlign='center';
+      if (s.mode==='intro'){
+        ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#fff'; const t=s.introTime; const alpha = Math.min(1, t/0.5) * (t<1.2?1:Math.max(0,2-t));
+        ctx.globalAlpha = alpha; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2 - 10);
+        ctx.globalAlpha = Math.max(0, alpha*0.8); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('a tiny top-down shooter', W/2, H/2 + 22);
+        ctx.globalAlpha = 1;
+      } else if (s.mode==='menu'){
+        ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#fff'; ctx.font='bold 36px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-60);
+        ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('WASD/Arrows move • Mouse aims • Click shoots', W/2, H/2-20);
+        ctx.fillText('Click or press any key to start', W/2, H/2+10);
+        ctx.fillText(`Best: ${s.bestScore}`, W/2, H/2+40);
+        ctx.font='12px ui-sans-serif,system-ui'; ctx.fillText('Press M to Mute/Unmute', W/2, H/2+64);
+      } else if (s.mode==='countdown'){
+        ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#fff'; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText(String(Math.max(1,Math.ceil(s.countdown))), W/2, H/2);
+      } else if (s.mode==='gameover'){
+        ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#fff'; ctx.font='bold 28px ui-sans-serif,system-ui'; ctx.fillText('Game Over', W/2, H/2-20);
+        ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText(`Score: ${s.score}   Best: ${s.bestScore}`, W/2, H/2+10);
+        ctx.fillText('Press R or click to restart', W/2, H/2+36);
+      }
+      ctx.textAlign='start';
+    };
+
+    // -------------------------- Input --------------------------
+    const onKeyDown = (e) => {
+      const k=e.key.toLowerCase(); if (!e.repeat) s.keys[k]=true;
+      if (k==='m'){ setMuted(m=>!m); return; }
+      if (s.mode==='intro'){ s.mode='menu'; startMenuMusic(); return; }
+      if (s.mode==='menu') { startGame(); return; }
+      if (s.mode==='gameover' && k==='r') { startGame(); return; }
+    };
+    const onKeyUp = (e) => { s.keys[e.key.toLowerCase()] = false; };
+    const onMouseMove = (e) => { const r = canvas.getBoundingClientRect(); s.mouse.x = (e.clientX - r.left) * (W / r.width); s.mouse.y = (e.clientY - r.top) * (H / r.height); };
+    const onMouseDown = () => {
+      s.mouse.down = true;
+      if (s.mode==='intro'){ s.mode='menu'; startMenuMusic(); return; }
+      if (s.mode==='menu' || s.mode==='gameover') startGame();
+    };
+    const onMouseUp = () => { s.mouse.down = false; };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mouseup', onMouseUp);
+
+    // --------------------------- Loop --------------------------
+    let raf; setMounted(true);
+    const step = (t) => {
+      if (!s.lastTime) s.lastTime = t;
+      const dt = Math.min(0.033, (t - s.lastTime) / 1000);
+      s.lastTime = t;
+      update(dt);
+      draw();
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mousedown', onMouseDown);
+      canvas.removeEventListener('mouseup', onMouseUp);
+      stopMenuMusic();
+    };
+  }, [muted]);
+
+  return (
+    <div className="w-full h-full flex flex-col items-center gap-3 py-4">
+      <h1 className="text-xl font-semibold">MataTudo</h1>
+      {!mounted && <div className="text-sm opacity-80">Loading…</div>}
+      <canvas ref={canvasRef} width={W} height={H} className="rounded-2xl shadow-lg border border-white/10 bg-black" />
+      <div className="text-xs opacity-70">WASD/Arrows move • Mouse aims • Click shoots • Press any key/click to start • R on Game Over • M to Mute</div>
+    </div>
+  );
+}
