@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 6</title>
+<title>MataTudo — Alpha 7</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; background:#0b1220; color:#fff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
@@ -21,14 +21,14 @@
 <body>
 <div class="wrap">
   <div class="panel">
-    <div class="title">MataTudo — Alpha 6</div>
+    <div class="title">MataTudo — Alpha 7</div>
     <canvas id="game" width="900" height="560"></canvas>
     <div class="row">
       <button id="pause" class="btn">Pause</button>
       <button id="mute" class="btn">Mute</button>
       <label>Vol <input id="vol" type="range" min="0" max="1" step="0.05" value="0.7"></label>
     </div>
-    <div class="hint">WASD/Arrows move • Mouse aims • Click shoots • Any Key/Click starts • <b>R</b> restarts • <b>M</b> mutes</div>
+    <div class="hint">WASD/Arrows move • Mouse aims • Click shoots • Any Key/Click starts • <b>R</b> restarts • <b>M</b> mutes • Level every 30 kills</div>
   </div>
 </div>
 
@@ -36,7 +36,7 @@
 (() => {
   // ---------- Config ----------
   const W = 900, H = 560, MAP_MARGIN = 12;
-  const LEVEL_KILLS = 50; // kills per level
+  const LEVEL_KILLS = 30; // kills per level (changed from 50 → 30)
   const MUSIC_URL = "https://raw.githubusercontent.com/esteves7771/MataTudo/main/retro-synthwave-gaming-music-270173.mp3";
 
   // ---------- DOM ----------
@@ -59,7 +59,7 @@
     let dx = cx - nx, dy = cy - ny;
     let dist = Math.hypot(dx,dy);
     if (dist === 0){
-      // Center exactly at corner/edge; push toward least-penetration side
+      // push toward least-penetration side
       const left = Math.abs(cx - o.x), right = Math.abs((o.x + o.w) - cx);
       const top = Math.abs(cy - o.y), bottom = Math.abs((o.y + o.h) - cy);
       const m = Math.min(left,right,top,bottom);
@@ -72,8 +72,8 @@
     const overlap = r - dist;
     if (overlap > 0){
       const ux = dx / dist, uy = dy / dist;
-      e.x += ux * (overlap + 0.5);
-      e.y += uy * (overlap + 0.5);
+      e.x += ux * (overlap + 0.75);
+      e.y += uy * (overlap + 0.75);
       e.x = clamp(e.x, MAP_MARGIN + r, W - MAP_MARGIN - r);
       e.y = clamp(e.y, MAP_MARGIN + r, H - MAP_MARGIN - r);
       return true;
@@ -81,17 +81,15 @@
     return false;
   }
   function resolveAllOverlaps(s){
-    // Resolve for player and each bot against all obstacles (a few passes)
-    const passes = 3;
+    // A few passes to ensure everything is clear of new walls
+    const passes = 5;
     for (let k=0;k<passes;k++){
-      // Player
       s.obstacles.forEach(o => { if (rectCircleOverlap(s.player.x, s.player.y, s.player.r, o)) pushCircleOutOfRect(s.player, o); });
-      // Bots
-      s.bots.forEach(b => {
-        s.obstacles.forEach(o => { if (rectCircleOverlap(b.x,b.y,b.r,o)) pushCircleOutOfRect(b,o); });
-      });
+      s.bots.forEach(b => { s.obstacles.forEach(o => { if (rectCircleOverlap(b.x,b.y,b.r,o)) pushCircleOutOfRect(b,o); }); });
     }
   }
+
+  const entityBlockedBy = (x,y,r,obs) => obs.some(o => rectCircleOverlap(x,y,r,o));
 
   const posIsFree = (x, y, r, s) => {
     if (x < MAP_MARGIN + r || x > W - MAP_MARGIN - r || y < MAP_MARGIN + r || y > H - MAP_MARGIN - r) return false;
@@ -121,7 +119,6 @@
     btnMute.textContent = audio.muted ? "Unmute" : "Mute";
     setVolume(audio.muted ? 0 : parseFloat(vol.value));
     if (audio.muted && audio.music) audio.music.pause();
-    // If unmuted and we're in playing mode, resume music
     if (!audio.muted && audio.music && s.mode === 'playing') audio.music.play().catch(()=>{});
   }
   vol.addEventListener('input', () => setVolume(parseFloat(vol.value)));
@@ -199,37 +196,94 @@
   })();
 
   // ---------- Obstacles regen ----------
-  function randomObstacles() {
-    const count = 4 + Math.floor(Math.random()*3); // 4-6
-    const obs = [];
-    for (let i=0;i<count;i++){
-      const t = Math.random();
-      if (t < 0.33) {
-        const w=60+Math.random()*120, h=60+Math.random()*120;
-        const x=MAP_MARGIN+20+Math.random()*(W-2*(MAP_MARGIN+20)-w);
-        const y=MAP_MARGIN+20+Math.random()*(H-2*(MAP_MARGIN+20)-h);
-        obs.push({x,y,w,h});
-      } else if (t < 0.66) {
-        const w=160+Math.random()*160, h=30+Math.random()*50;
-        const x=MAP_MARGIN+20+Math.random()*(W-2*(MAP_MARGIN+20)-w);
-        const y=MAP_MARGIN+20+Math.random()*(H-2*(MAP_MARGIN+20)-h);
-        obs.push({x,y,w,h});
-      } else {
-        const cx=MAP_MARGIN+80+Math.random()*(W-2*(MAP_MARGIN+80));
-        const cy=MAP_MARGIN+60+Math.random()*(H-2*(MAP_MARGIN+60));
-        const n = 3 + Math.floor(Math.random()*4);
-        for (let j=0;j<n;j++){
-          const w=40+Math.random()*60, h=40+Math.random()*60;
-          const x=clamp(cx+(Math.random()*120-60), MAP_MARGIN+10, W-MAP_MARGIN-10-w);
-          const y=clamp(cy+(Math.random()*100-50), MAP_MARGIN+10, H-MAP_MARGIN-10-h);
-          obs.push({x,y,w,h});
+  // Diverse generator: clusters, bars, random blocks; allows wall-on-wall overlaps,
+  // but NEVER places a wall directly overlapping the player or any bot at time of swap.
+  function generateDiverseObstacles(currentEntities){
+    const patterns = [];
+    const addRect = (obs, x,y,w,h) => {
+      // Keep within margins
+      x = clamp(x, MAP_MARGIN, W - MAP_MARGIN - w);
+      y = clamp(y, MAP_MARGIN, H - MAP_MARGIN - h);
+      const rect = {x,y,w,h};
+      // Skip if it would cover player/bots (prevents stuck)
+      const wouldCover = currentEntities.some(ent => rectCircleOverlap(ent.x, ent.y, ent.r + 2, rect));
+      if (!wouldCover) obs.push(rect);
+    };
+
+    // Pattern A: central cluster + satellites
+    patterns.push(() => {
+      const obs = [];
+      const cx = MAP_MARGIN + 80 + Math.random()*(W-2*(MAP_MARGIN+80));
+      const cy = MAP_MARGIN + 70 + Math.random()*(H-2*(MAP_MARGIN+70));
+      const coreW = 80 + Math.random()*140, coreH = 60 + Math.random()*120;
+      addRect(obs, cx - coreW/2, cy - coreH/2, coreW, coreH);
+      const n = 3 + Math.floor(Math.random()*4);
+      for (let i=0;i<n;i++){
+        const w = 40 + Math.random()*100, h = 30 + Math.random()*80;
+        const ox = cx + (Math.random()*220 - 110), oy = cy + (Math.random()*180 - 90);
+        addRect(obs, ox - w/2, oy - h/2, w, h);
+      }
+      return obs;
+    });
+
+    // Pattern B: horizontal/vertical bars (corridors)
+    patterns.push(() => {
+      const obs = [];
+      const bars = 3 + Math.floor(Math.random()*3);
+      for (let i=0;i<bars;i++){
+        const horiz = Math.random() < 0.5;
+        if (horiz){
+          const w = 160 + Math.random()*260, h = 24 + Math.random()*40;
+          const x = MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w);
+          const y = MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h);
+          addRect(obs, x,y,w,h);
+        } else {
+          const w = 26 + Math.random()*42, h = 160 + Math.random()*260;
+          const x = MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w);
+          const y = MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h);
+          addRect(obs, x,y,w,h);
         }
       }
+      return obs;
+    });
+
+    // Pattern C: scattered blocks (allows overlaps for messy stacks)
+    patterns.push(() => {
+      const obs = [];
+      const count = 6 + Math.floor(Math.random()*6);
+      for (let i=0;i<count;i++){
+        const w = 50 + Math.random()*130, h = 50 + Math.random()*130;
+        const x = MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w);
+        const y = MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h);
+        addRect(obs, x,y,w,h);
+      }
+      return obs;
+    });
+
+    // Pick a couple patterns and merge (overlaps allowed)
+    let obs = [];
+    const picks = 2 + Math.floor(Math.random()*2); // 2-3 patterns
+    for (let i=0;i<picks;i++){
+      const part = patterns[Math.floor(Math.random()*patterns.length)]();
+      obs = obs.concat(part);
     }
-    const safe = { x:s.player.x-80, y:s.player.y-80, w:160, h:160 };
-    const safeOverlap = obs.some(o => !(safe.x + safe.w < o.x || safe.x > o.x + o.w || safe.y + safe.h < o.y || safe.y > o.y + o.h));
-    return safeOverlap ? s.obstacles : obs;
+    // Keep within a reasonable cap
+    if (obs.length > 14) obs.length = 14;
+    return obs;
   }
+
+  function randomObstaclesAvoidEntities(){
+    const ents = [{x:s.player.x, y:s.player.y, r:s.player.r}].concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r})));
+    // Try a bunch of times to get a layout that avoids covering entities
+    for (let tries=0; tries<20; tries++){
+      const obs = generateDiverseObstacles(ents);
+      const coversEntity = ents.some(ent => entityBlockedBy(ent.x, ent.y, ent.r, obs));
+      if (!coversEntity) return obs;
+    }
+    // Fallback: keep current
+    return s.obstacles;
+  }
+
   function triggerObstacleSwap(){ s.obstaclePhase='fadeOut'; s.obstacleFadeT=0; }
   function updateObstacleFade(dt){
     if (s.obstaclePhase==='stable') return;
@@ -239,9 +293,8 @@
     if (s.obstaclePhase==='fadeOut'){
       s.obstacleAlpha = 1 - t;
       if (s.obstacleFadeT >= DUR){
-        s.obstacles = randomObstacles();
-        // NEW: push-out after swapping obstacles
-        resolveAllOverlaps(s);
+        s.obstacles = randomObstaclesAvoidEntities();
+        resolveAllOverlaps(s); // Safety net even after avoiding overlaps
         s.obstaclePhase='fadeIn'; s.obstacleFadeT = 0;
       }
     } else {
@@ -265,7 +318,8 @@
       else if (edge===1){ x = W - MAP_MARGIN - r - 2; y = Math.random()*(H-2*MAP_MARGIN)+MAP_MARGIN; }
       else if (edge===2){ x = Math.random()*(W-2*MAP_MARGIN)+MAP_MARGIN; y = MAP_MARGIN + r + 2; }
       else { x = Math.random()*(W-2*MAP_MARGIN)+MAP_MARGIN; y = H - MAP_MARGIN - r - 2; }
-      if (posIsFree(x,y,r,s)) break;
+      // Also make sure the spawn point isn't immediately inside a wall
+      if (!entityBlockedBy(x,y,r,s.obstacles)) break;
     }
     const base = 80+Math.random()*35;
     const hp = elite?200:40;
@@ -277,7 +331,7 @@
     if (s.score>0 && s.score%30===0 && s.lastMedkitAtScore!==s.score){
       for (let i=0;i<60;i++){
         const r=10; const x=MAP_MARGIN+r + Math.random()*(W-2*(MAP_MARGIN+r)); const y=MAP_MARGIN+r + Math.random()*(H-2*(MAP_MARGIN+r));
-        if (!posIsFree(x,y,r,s)) continue;
+        if (entityBlockedBy(x,y,r,s.obstacles)) continue;
         s.medkits.push({ x,y,r,timeLeft:20 }); s.lastMedkitAtScore = s.score; break;
       }
     }
@@ -296,6 +350,7 @@
   // ---------- Start/Reset ----------
   function startGame(){
     ensureAC(); startMusic();
+    // DO NOT change s.obstacles → restarts use the same map we died on.
     s.player = { x:W/2, y:H/2, r:12, speed:240, hp:100, fireCooldown:0, flashTimer:0, hitCooldown:0 };
     s.bullets=[]; s.bots=[]; s.particles=[]; s.medkits=[];
     s.spawnTimer=0; s.score=0; s.lastEliteAtScore=0; s.lastMedkitAtScore=0;
@@ -436,7 +491,7 @@
     s.particles.forEach(pt => { pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.life-=dt; });
     s.particles = s.particles.filter(pt => pt.life>0);
 
-    // death
+    // death (map persists)
     if (p.hp<=0){
       s.mode='gameover'; stopMusic();
       try { if (s.score > (s.bestScore||0)) { s.bestScore = s.score; localStorage.setItem('matatudo_best', String(s.bestScore)); } } catch {}
@@ -540,7 +595,7 @@
     const k = e.key.toLowerCase();
     if (!e.repeat) s.keys[k] = true;
     if (k==='m'){ toggleMute(); return; }
-    if (k==='r'){ startGame(); return; } // NEW: restart from any state
+    if (k==='r'){ startGame(); return; }
     if (s.mode==='intro'){ s.mode='menu'; stopMusic(); return; }
     if (s.mode==='menu'){ startGame(); return; }
     if (s.mode==='gameover'){ startGame(); return; }
