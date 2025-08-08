@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 8</title>
+<title>MataTudo — Alpha 9</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; background:#0b1220; color:#fff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
@@ -21,7 +21,7 @@
 <body>
 <div class="wrap">
   <div class="panel">
-    <div class="title">MataTudo — Alpha 8</div>
+    <div class="title">MataTudo — Alpha 9</div>
     <canvas id="game" width="900" height="560"></canvas>
     <div class="row">
       <button id="pause" class="btn">Pause</button>
@@ -37,15 +37,12 @@
   // ---------- Config ----------
   const W = 900, H = 560, MAP_MARGIN = 12;
   const LEVEL_KILLS = 30; // kills per level
+  const MEDKIT_EVERY = 25; // kills
   const MUSIC_URL = "https://raw.githubusercontent.com/esteves7771/MataTudo/main/retro-synthwave-gaming-music-270173.mp3";
 
-  // Map generation hard rules
-  const MAX_OBS_W = 220;   // max obstacle width
-  const MAX_OBS_H = 180;   // max obstacle height
-  const MIN_GAP   = 28;    // min corridor width between obstacles / walls
-  const SAFE_RING = 80;    // keep around player on swap
-  const GRID_CELLS_X = 36; // coarse grid used for reachability test
-  const GRID_CELLS_Y = 22;
+  // Map constraints (from Alpha 8)
+  const MAX_OBS_W = 220, MAX_OBS_H = 180, MIN_GAP = 28, SAFE_RING = 80;
+  const GRID_CELLS_X = 36, GRID_CELLS_Y = 22;
 
   // ---------- DOM ----------
   const cvs = document.getElementById('game');
@@ -60,6 +57,11 @@
   const rectCircleOverlap = (cx, cy, r, o) => { const nx = clamp(cx, o.x, o.x + o.w), ny = clamp(cy, o.y, o.y + o.h); const dx = cx - nx, dy = cy - ny; return dx*dx + dy*dy <= r*r; };
   const bulletHitsObstacle = (b, o) => (b.x + b.r > o.x && b.x - b.r < o.x + o.w && b.y + b.r > o.y && b.y - b.r < o.y + o.h);
   const entityBlockedBy = (x,y,r,obs) => obs.some(o => rectCircleOverlap(x,y,r,o));
+  const rand = (a,b)=>a+Math.random()*(b-a);
+
+  // Screen shake
+  function addShake(s, mag=6, dur=0.2){ s.shakeMag = Math.max(s.shakeMag||0, mag); s.shakeT = Math.max(s.shakeT||0, dur); }
+  function applyShake(s){ if ((s.shakeT||0) <= 0) return; s.shakeT -= s.dt; const m = (s.shakeMag||0) * (s.shakeT>0 ? (s.shakeT) : 0); const x = (Math.random()*2-1)*m, y=(Math.random()*2-1)*m; ctx.translate(x,y); }
 
   // Minimal push-out to resolve circle/rect overlap
   function pushCircleOutOfRect(e, o){
@@ -71,10 +73,7 @@
       const left = Math.abs(cx - o.x), right = Math.abs((o.x + o.w) - cx);
       const top = Math.abs(cy - o.y), bottom = Math.abs((o.y + o.h) - cy);
       const m = Math.min(left,right,top,bottom);
-      if (m === left) dx = -1, dy = 0;
-      else if (m === right) dx = 1, dy = 0;
-      else if (m === top) dx = 0, dy = -1;
-      else dx = 0, dy = 1;
+      if (m === left) dx = -1, dy = 0; else if (m === right) dx = 1, dy = 0; else if (m === top) dx = 0, dy = -1; else dx = 0, dy = 1;
       dist = 1;
     }
     const overlap = r - dist;
@@ -96,26 +95,20 @@
     }
   }
 
-  // Corridor-safe obstacle rect with gap to borders
   function insetToPlayArea(x,y,w,h){
-    const left = MAP_MARGIN + MIN_GAP;
-    const top = MAP_MARGIN + MIN_GAP;
-    const right = W - MAP_MARGIN - MIN_GAP;
-    const bottom = H - MAP_MARGIN - MIN_GAP;
-    w = Math.min(w, right - left);
-    h = Math.min(h, bottom - top);
-    x = clamp(x, left, right - w);
-    y = clamp(y, top, bottom - h);
+    const left = MAP_MARGIN + MIN_GAP, top = MAP_MARGIN + MIN_GAP;
+    const right = W - MAP_MARGIN - MIN_GAP, bottom = H - MAP_MARGIN - MIN_GAP;
+    w = Math.min(w, right - left); h = Math.min(h, bottom - top);
+    x = clamp(x, left, right - w); y = clamp(y, top, bottom - h);
     return { x, y, w, h };
   }
 
-  // ---------- Audio (SFX via WebAudio, Music via HTMLAudio) ----------
+  // ---------- Audio ----------
   const audio = { ctx:null, master:null, sfxGain:null, muted:false, music:null };
   function ensureAC() {
     if (audio.muted) return;
     if (!audio.ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
       const ac = new AC();
       const master = ac.createGain(); master.gain.value = parseFloat(vol.value); master.connect(ac.destination);
       const sfxGain = ac.createGain(); sfxGain.gain.value = 1.0; sfxGain.connect(master);
@@ -125,13 +118,7 @@
     }
   }
   function setVolume(x){ if (audio.master) audio.master.gain.value = x; if (audio.music) audio.music.volume = audio.muted ? 0 : x; }
-  function toggleMute(){
-    audio.muted = !audio.muted;
-    btnMute.textContent = audio.muted ? "Unmute" : "Mute";
-    setVolume(audio.muted ? 0 : parseFloat(vol.value));
-    if (audio.muted && audio.music) audio.music.pause();
-    if (!audio.muted && audio.music && s.mode === 'playing') audio.music.play().catch(()=>{});
-  }
+  function toggleMute(){ audio.muted = !audio.muted; btnMute.textContent = audio.muted ? "Unmute" : "Mute"; setVolume(audio.muted ? 0 : parseFloat(vol.value)); if (audio.muted && audio.music) audio.music.pause(); if (!audio.muted && audio.music && s.mode === 'playing') audio.music.play().catch(()=>{}); }
   vol.addEventListener('input', () => setVolume(parseFloat(vol.value)));
   btnMute.addEventListener('click', toggleMute);
   document.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'm') toggleMute(); });
@@ -161,40 +148,36 @@
   };
 
   function startMusic(){
-    if (!audio.music) {
-      audio.music = new Audio(MUSIC_URL);
-      audio.music.loop = true;
-      audio.music.crossOrigin = 'anonymous';
-      audio.music.preload = 'auto';
-    }
+    if (!audio.music) { audio.music = new Audio(MUSIC_URL); audio.music.loop = true; audio.music.crossOrigin = 'anonymous'; audio.music.preload = 'auto'; }
     if (!audio.muted) { audio.music.volume = parseFloat(vol.value); audio.music.play().catch(()=>{}); }
   }
   function stopMusic(){ if (audio.music) { audio.music.pause(); audio.music.currentTime = 0; } }
 
   // ---------- State ----------
   const s = {
-    time:0, lastTime:0, running:true,
+    time:0, lastTime:0, running:true, dt:0,
     mode:'intro', introTime:0, countdown:2,
-    level:1, levelUpFlash:0,
+    level:1, levelUpFlash:0, pendingBoss:false,
     score:0, bestScore:0,
+    shotsFired:0, shotsHit:0,
     lastMedkitAtScore:0, lastEliteAtScore:0,
     player:{ x:W/2, y:H/2, r:12, speed:240, hp:100, fireCooldown:0, flashTimer:0, hitCooldown:0 },
     keys:{}, mouse:{ x:W/2, y:H/2, down:false },
-    bullets:[], bots:[], particles:[], medkits:[],
+    bullets:[], bots:[], particles:[], medkits:[], explosions:[],
     groundPattern:null,
     spawnTimer:0, firstWaveRemaining:4, firstWaveInterval:0.4, firstWaveTimer:0.4,
-    // obstacles & fading
     obstacles:[
       { x:280,y:180,w:90,h:90 },
       { x:610,y:340,w:120,h:70 },
       { x:440,y: 90,w:70,h:70 },
       { x:120,y:400,w:140,h:40 },
     ],
-    obstacleAlpha:1, obstaclePhase:'stable', obstacleFadeT:0
+    obstacleAlpha:1, obstaclePhase:'stable', obstacleFadeT:0,
+    shakeT:0, shakeMag:0
   };
   try { const saved = localStorage.getItem('matatudo_best'); if (saved) s.bestScore = parseInt(saved, 10) || 0; } catch {}
 
-  // Pattern
+  // Background pattern
   ;(function(){
     const pc = document.createElement('canvas'); pc.width=64; pc.height=64;
     const pg = pc.getContext('2d');
@@ -206,7 +189,7 @@
     s.groundPattern = ctx.createPattern(pc,'repeat');
   })();
 
-  // ---------- Connectivity test on coarse grid ----------
+  // ---------- Connectivity grid (from Alpha 8) ----------
   function buildGridFromObstacles(obstacles){
     const grid = Array.from({length:GRID_CELLS_Y}, ()=>Array(GRID_CELLS_X).fill(0)); // 0 free, 1 blocked
     const cellW = (W - 2*MAP_MARGIN) / GRID_CELLS_X;
@@ -215,7 +198,6 @@
       for (let x=0;x<GRID_CELLS_X;x++){
         const cx = MAP_MARGIN + x*cellW + cellW/2;
         const cy = MAP_MARGIN + y*cellH + cellH/2;
-        // Treat the player radius + gap as the clearance requirement
         const rr = 12 + MIN_GAP/2;
         if (obstacles.some(o => rectCircleOverlap(cx, cy, rr, o))) grid[y][x] = 1;
       }
@@ -225,18 +207,8 @@
   function bfsReach(grid, startX, startY){
     const Hh = grid.length, Ww = grid[0].length;
     const q=[[startX,startY]]; const seen = Array.from({length:Hh},()=>Array(Ww).fill(false));
-    seen[startY][startX] = true;
-    const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
-    while(q.length){
-      const [x,y]=q.shift();
-      for(const [dx,dy] of dirs){
-        const nx=x+dx, ny=y+dy;
-        if(nx<0||ny<0||nx>=Ww||ny>=Hh) continue;
-        if(seen[ny][nx]) continue;
-        if(grid[ny][nx]===1) continue;
-        seen[ny][nx]=true; q.push([nx,ny]);
-      }
-    }
+    seen[startY][startX] = true; const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+    while(q.length){ const [x,y]=q.shift(); for(const [dx,dy] of dirs){ const nx=x+dx, ny=y+dy; if(nx<0||ny<0||nx>=Ww||ny>=Hh) continue; if(seen[ny][nx]||grid[ny][nx]===1) continue; seen[ny][nx]=true; q.push([nx,ny]); } }
     return seen;
   }
   function gridCellFromXY(x,y,cellW,cellH){
@@ -247,40 +219,33 @@
   function doorsReachable(obstacles, px, py){
     const { grid, cellW, cellH } = buildGridFromObstacles(obstacles);
     const { gx, gy } = gridCellFromXY(px, py, cellW, cellH);
-    if (grid[gy][gx]===1) return false; // start blocked → reject
+    if (grid[gy][gx]===1) return false;
     const seen = bfsReach(grid, gx, gy);
-    // Pick four “door” cells near each edge center
     const doors = [
-      {gx: Math.floor(GRID_CELLS_X/2), gy: 0},                         // top
-      {gx: Math.floor(GRID_CELLS_X/2), gy: GRID_CELLS_Y-1},            // bottom
-      {gx: 0,                        gy: Math.floor(GRID_CELLS_Y/2)},  // left
-      {gx: GRID_CELLS_X-1,           gy: Math.floor(GRID_CELLS_Y/2)},  // right
+      {gx: Math.floor(GRID_CELLS_X/2), gy: 0},
+      {gx: Math.floor(GRID_CELLS_X/2), gy: GRID_CELLS_Y-1},
+      {gx: 0,                        gy: Math.floor(GRID_CELLS_Y/2)},
+      {gx: GRID_CELLS_X-1,           gy: Math.floor(GRID_CELLS_Y/2)},
     ];
     return doors.every(d => seen[d.gy][d.gx] === true);
   }
 
-  // ---------- Obstacles regen (navigable) ----------
+  // ---------- Map gen (navigable) ----------
   function generateCandidateObstacles(currentEntities){
     const obstacles = [];
     const addRect = (x,y,w,h) => {
-      w = Math.min(w, MAX_OBS_W);
-      h = Math.min(h, MAX_OBS_H);
+      w = Math.min(w, MAX_OBS_W); h = Math.min(h, MAX_OBS_H);
       let r = insetToPlayArea(x,y,w,h);
-      // enforce MIN_GAP between obstacles by expanding rectangles in checks
       const inflated = { x: r.x - MIN_GAP/2, y: r.y - MIN_GAP/2, w: r.w + MIN_GAP, h: r.h + MIN_GAP };
       if (rectOverAny(inflated, obstacles.map(o=>({x:o.x - MIN_GAP/2, y:o.y - MIN_GAP/2, w:o.w + MIN_GAP, h:o.h + MIN_GAP})))) return;
-      // don’t cover current entities
       const wouldCover = currentEntities.some(ent => rectCircleOverlap(ent.x, ent.y, ent.r + 2, r));
       if (wouldCover) return;
       obstacles.push(r);
     };
-
-    // Mix of patterns while respecting gaps
-    const patternCount = 2 + Math.floor(Math.random()*2); // 2-3
+    const patternCount = 2 + Math.floor(Math.random()*2);
     for (let k=0;k<patternCount;k++){
       const pick = Math.floor(Math.random()*3);
       if (pick===0){
-        // cluster + satellites
         const cx = MAP_MARGIN + 120 + Math.random()*(W-2*(MAP_MARGIN+120));
         const cy = MAP_MARGIN + 90  + Math.random()*(H-2*(MAP_MARGIN+90));
         const coreW = 80 + Math.random()*120, coreH = 60 + Math.random()*100;
@@ -291,7 +256,6 @@
           addRect(cx + (Math.random()*220-110) - w/2, cy + (Math.random()*160-80) - h/2, w, h);
         }
       } else if (pick===1){
-        // corridors (bars)
         const bars = 3 + Math.floor(Math.random()*3);
         for (let i=0;i<bars;i++){
           const horiz = Math.random() < 0.5;
@@ -304,7 +268,6 @@
           }
         }
       } else {
-        // scattered blocks
         const count = 6 + Math.floor(Math.random()*6);
         for (let i=0;i<count;i++){
           const w = 50 + Math.random()*110, h = 50 + Math.random()*110;
@@ -312,35 +275,26 @@
         }
       }
     }
-    // cap total to keep space navigable
     if (obstacles.length > 14) obstacles.length = 14;
     return obstacles;
   }
-
   function randomObstaclesNavigable(){
-    // entities to protect (no obstacles over them during swap)
     const ents = [{x:s.player.x, y:s.player.y, r:SAFE_RING}].concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r+SAFE_RING*0.25})));
-
-    // try several times to get a layout with door connectivity
     for (let tries=0; tries<30; tries++){
       const obs = generateCandidateObstacles(ents);
       if (doorsReachable(obs, s.player.x, s.player.y)) return obs;
     }
-    // Fallback to previous (very rare)
     return s.obstacles;
   }
-
   function triggerObstacleSwap(){ s.obstaclePhase='fadeOut'; s.obstacleFadeT=0; }
   function updateObstacleFade(dt){
     if (s.obstaclePhase==='stable') return;
-    const DUR = 0.45;
-    s.obstacleFadeT += dt;
-    const t = clamp(s.obstacleFadeT / DUR, 0, 1);
+    const DUR = 0.45; s.obstacleFadeT += dt; const t = clamp(s.obstacleFadeT / DUR, 0, 1);
     if (s.obstaclePhase==='fadeOut'){
       s.obstacleAlpha = 1 - t;
       if (s.obstacleFadeT >= DUR){
         s.obstacles = randomObstaclesNavigable();
-        resolveAllOverlaps(s); // safety net
+        resolveAllOverlaps(s);
         s.obstaclePhase='fadeIn'; s.obstacleFadeT = 0;
       }
     } else {
@@ -356,28 +310,37 @@
       s.particles.push({ x,y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:0.4+Math.random()*0.4, color, size });
     }
   }
-  function spawnBot(elite=false){
-    let tries=0, x=0, y=0, r=elite?16:12;
-    while (tries++<40){
+  function spawnExplosion(x,y,scale=1,color='#ffcf6b'){
+    s.explosions.push({ x,y, t:0, dur:0.35, r0:8*scale, r1:36*scale, color });
+  }
+  function spawnBot(elite=false, boss=false){
+    let tries=0, x=0, y=0, r=boss?26:(elite?16:12);
+    while (tries++<50){
       const edge=Math.floor(Math.random()*4);
-      if (edge===0){ x = MAP_MARGIN + r + 2; y = Math.random()*(H-2*MAP_MARGIN)+MAP_MARGIN; }
-      else if (edge===1){ x = W - MAP_MARGIN - r - 2; y = Math.random()*(H-2*MAP_MARGIN)+MAP_MARGIN; }
-      else if (edge===2){ x = Math.random()*(W-2*MAP_MARGIN)+MAP_MARGIN; y = MAP_MARGIN + r + 2; }
-      else { x = Math.random()*(W-2*MAP_MARGIN)+MAP_MARGIN; y = H - MAP_MARGIN - r - 2; }
+      if (edge===0){ x = MAP_MARGIN + r + 2; y = rand(MAP_MARGIN, H-MAP_MARGIN); }
+      else if (edge===1){ x = W - MAP_MARGIN - r - 2; y = rand(MAP_MARGIN, H-MAP_MARGIN); }
+      else if (edge===2){ x = rand(MAP_MARGIN, W-MAP_MARGIN); y = MAP_MARGIN + r + 2; }
+      else { x = rand(MAP_MARGIN, W-MAP_MARGIN); y = H - MAP_MARGIN - r - 2; }
       if (!entityBlockedBy(x,y,r,s.obstacles)) break;
     }
-    const base = 80+Math.random()*35;
-    const hp = elite?200:40;
-    const speed = base * (1 + 0.08*(s.level-1)) * (elite?0.9:1);
-    const shootEvery = (0.9 + Math.random()*0.9) * (elite?0.85:1);
-    s.bots.push({ x,y,r,speed,hp,fireCooldown:0,shootEvery,jitter:Math.random()*Math.PI*2, elite });
+    const baseSpd = boss ? 70 : 80+Math.random()*35;
+    const hp = boss? 600 : (elite?200:40);
+    const speed = baseSpd * (1 + 0.08*(s.level-1)) * (elite?0.9:1);
+    const shootEvery = (boss? 0.65 : (0.9 + Math.random()*0.9)) * (elite?0.85:1);
+    // Random powerups for non-boss bots (10-15% each type)
+    let speedMul = 1, extraHP = 0, mod = null;
+    if (!boss){
+      if (Math.random() < 0.15){ speedMul = 1.35; mod = (mod||'') + 'S'; }
+      if (Math.random() < 0.12){ extraHP = 40; mod = (mod||'') + 'H'; }
+    }
+    s.bots.push({ x,y,r,speed:speed*speedMul,hp:hp+extraHP,fireCooldown:0,shootEvery,jitter:Math.random()*Math.PI*2, elite, boss, mod, outline: mod? '#7cf' : null });
   }
   function trySpawnMedkit(){
-    if (s.score>0 && s.score%30===0 && s.lastMedkitAtScore!==s.score){
+    if (s.score>0 && s.score%MEDKIT_EVERY===0 && s.lastMedkitAtScore!==s.score){
       for (let i=0;i<60;i++){
         const r=10; const x=MAP_MARGIN+r + Math.random()*(W-2*(MAP_MARGIN+r)); const y=MAP_MARGIN+r + Math.random()*(H-2*(MAP_MARGIN+r));
         if (entityBlockedBy(x,y,r,s.obstacles)) continue;
-        s.medkits.push({ x,y,r,timeLeft:20 }); s.lastMedkitAtScore = s.score; break;
+        s.medkits.push({ x,y,r,timeLeft:20, heal:30 }); s.lastMedkitAtScore = s.score; break;
       }
     }
   }
@@ -386,53 +349,59 @@
   function maybeLevelUp(){
     const nextLevel = Math.floor(s.score / LEVEL_KILLS) + 1;
     if (nextLevel > s.level){
-      s.level = nextLevel;
-      s.levelUpFlash = 2; // seconds
-      triggerObstacleSwap();
+      s.level = nextLevel; s.levelUpFlash = 2; triggerObstacleSwap();
+      if (s.level % 5 === 0){ // schedule boss now
+        s.pendingBoss = true;
+      }
     }
   }
 
   // ---------- Start/Reset ----------
   function startGame(){
     ensureAC(); startMusic();
-    // DO NOT change s.obstacles → restarts use the same map we died on.
+    // Keep existing s.obstacles (map persists after death)
     s.player = { x:W/2, y:H/2, r:12, speed:240, hp:100, fireCooldown:0, flashTimer:0, hitCooldown:0 };
-    s.bullets=[]; s.bots=[]; s.particles=[]; s.medkits=[];
+    s.bullets=[]; s.bots=[]; s.particles=[]; s.medkits=[]; s.explosions=[];
     s.spawnTimer=0; s.score=0; s.lastEliteAtScore=0; s.lastMedkitAtScore=0;
     s.firstWaveRemaining=4; s.firstWaveTimer=s.firstWaveInterval;
-    s.level=1; s.levelUpFlash=0; s.obstaclePhase='stable'; s.obstacleAlpha=1;
+    s.level=1; s.levelUpFlash=0; s.obstaclePhase='stable'; s.obstacleAlpha=1; s.pendingBoss=false;
+    s.shotsFired=0; s.shotsHit=0;
     s.mode='countdown'; s.countdown=2;
   }
 
   // ---------- Update ----------
   function update(dt){
-    s.time += dt;
-    updateObstacleFade(dt);
-
+    s.dt = dt; s.time += dt; updateObstacleFade(dt);
     if (!s.running) return;
 
-    // states
     if (s.mode==='intro'){ s.introTime += dt; if (s.introTime>1.6){ s.mode='menu'; stopMusic(); } return; }
     if (s.mode==='menu') return;
     if (s.mode==='countdown'){ s.countdown -= dt; if (s.countdown<=0){ s.mode='playing'; } return; }
     if (s.mode!=='playing') return;
 
-    // spawn rate scales by level
+    // Spawn logic (pause regular spawns while a boss exists or is pending)
+    const bossAlive = s.bots.some(b=>b.boss);
     s.spawnTimer -= dt;
-    const spawnBase = Math.max(0.5, 1.6 - Math.min(60, s.score/5)*0.01);
-    const spawnScaled = Math.max(0.25, spawnBase * (1 - 0.06*(s.level-1)));
-    if (s.spawnTimer<=0){
-      const eliteChance = Math.min(0.5, 0.05*s.level);
-      spawnBot(Math.random() < eliteChance);
-      s.spawnTimer = spawnScaled;
+    if (!bossAlive && !s.pendingBoss){
+      const spawnBase = Math.max(0.5, 1.6 - Math.min(60, s.score/5)*0.01);
+      const spawnScaled = Math.max(0.25, spawnBase * (1 - 0.06*(s.level-1)));
+      if (s.spawnTimer<=0){
+        const eliteChance = Math.min(0.5, 0.05*s.level);
+        spawnBot(Math.random() < eliteChance, false);
+        s.spawnTimer = spawnScaled;
+      }
+      if (s.firstWaveRemaining>0){
+        s.firstWaveTimer -= dt; if (s.firstWaveTimer<=0){ spawnBot(false,false); s.firstWaveRemaining--; s.firstWaveTimer = s.firstWaveInterval; }
+      }
+      if (s.score>0 && s.score%20===0 && s.lastEliteAtScore !== s.score){ spawnBot(true,false); s.lastEliteAtScore = s.score; }
     }
-    if (s.firstWaveRemaining>0){
-      s.firstWaveTimer -= dt;
-      if (s.firstWaveTimer<=0){ spawnBot(false); s.firstWaveRemaining--; s.firstWaveTimer = s.firstWaveInterval; }
+    // Handle pending boss
+    if (s.pendingBoss && !bossAlive){
+      spawnBot(false,true);
+      s.pendingBoss = false;
     }
-    if (s.score>0 && s.score%20===0 && s.lastEliteAtScore !== s.score){ spawnBot(true); s.lastEliteAtScore = s.score; }
 
-    // player move
+    // Player move
     const p = s.player;
     p.hitCooldown = Math.max(0, p.hitCooldown - dt);
     p.flashTimer = Math.max(0, p.flashTimer - dt);
@@ -446,25 +415,29 @@
     let nx = clamp(p.x + mvx, MAP_MARGIN+p.r, W-MAP_MARGIN-p.r); if (!s.obstacles.some(o=>rectCircleOverlap(nx,p.y,p.r,o))) p.x = nx;
     let ny = clamp(p.y + mvy, MAP_MARGIN+p.r, H-MAP_MARGIN-p.r); if (!s.obstacles.some(o=>rectCircleOverlap(p.x,ny,p.r,o))) p.y = ny;
 
-    // shooting (DOUBLE-SHOT at Level 2+)
+    // Shooting — L2 double, L5 triple
     p.fireCooldown -= dt;
     if (s.mouse.down && p.fireCooldown<=0){
       const dx = s.mouse.x - p.x, dy = s.mouse.y - p.y, d = Math.hypot(dx,dy) || 1;
       const baseAng = Math.atan2(dy,dx);
-      if (s.level >= 2) {
-        const spread = 0.07;
-        const a1 = baseAng - spread/2;
-        const a2 = baseAng + spread/2;
-        s.bullets.push({ x:p.x, y:p.y, vx:Math.cos(a1)*520, vy:Math.sin(a1)*520, r:3, owner:'player', life:2 });
-        s.bullets.push({ x:p.x, y:p.y, vx:Math.cos(a2)*520, vy:Math.sin(a2)*520, r:3, owner:'player', life:2 });
-      } else {
+      let shots = 1, spread = 0;
+      if (s.level >= 5){ shots = 3; spread = 0.12; }
+      else if (s.level >= 2){ shots = 2; spread = 0.07; }
+      if (shots === 1){
         s.bullets.push({ x:p.x, y:p.y, vx:dx/d*520, vy:dy/d*520, r:3, owner:'player', life:2 });
+      } else {
+        for (let i=0;i<shots;i++){
+          const t = shots===2? (i? +0.5:-0.5) : (i-1); // -1,0,+1
+          const ang = baseAng + (t * spread/ (shots===2?1:1)); // same spread step for 2/3
+          s.bullets.push({ x:p.x, y:p.y, vx:Math.cos(ang)*520, vy:Math.sin(ang)*520, r:3, owner:'player', life:2 });
+        }
       }
+      s.shotsFired += shots;
       spawnParticles(p.x+Math.cos(baseAng)*p.r, p.y+Math.sin(baseAng)*p.r, '#fff8', 6, 1.6);
       p.flashTimer = 0.07; p.fireCooldown = 0.15; SFX.shot();
     }
 
-    // bots
+    // Bots
     s.bots.forEach(b => {
       b.jitter = (b.jitter||0) + dt*2.2;
       const a0 = Math.atan2(p.y-b.y, p.x-b.x) + Math.sin(b.jitter)*0.25;
@@ -480,33 +453,40 @@
       b.fireCooldown -= dt;
       if (b.fireCooldown<=0){
         const dx=p.x-b.x, dy=p.y-b.y; const aa = Math.atan2(dy,dx) + (Math.random()-0.5)*0.18;
-        s.bullets.push({ x:b.x, y:b.y, vx:Math.cos(aa)*360, vy:Math.sin(aa)*360, r:3, owner:'bot', life:2 });
-        b.fireCooldown = b.shootEvery * Math.max(0.6, 1 - 0.05*(s.level-1));
+        const speed = b.boss ? 420 : 360;
+        s.bullets.push({ x:b.x, y:b.y, vx:Math.cos(aa)*speed, vy:Math.sin(aa)*speed, r:3, owner:'bot', life:2 });
+        b.fireCooldown = b.shootEvery * Math.max(0.55, 1 - 0.05*(s.level-1));
       }
     });
 
-    // bullets
+    // Bullets move & collide with walls
     s.bullets.forEach(b => { b.x += b.vx*dt; b.y += b.vy*dt; b.life-=dt; });
     s.bullets = s.bullets.filter(b => b.life>0 && b.x>-10 && b.x<W+10 && b.y>-10 && b.y<H+10 && !s.obstacles.some(o=>bulletHitsObstacle(b,o)) );
 
-    // hits (bot bullets -> player)
+    // Bot bullets → player
     s.bullets.forEach(b => {
       if (b.owner==='bot' && Math.hypot(b.x-p.x,b.y-p.y) < b.r + p.r){
-        if (p.hitCooldown<=0){ p.hp -= 10; p.hitCooldown = 0.35; spawnParticles(p.x,p.y,'#f00',8,2.2); SFX.hit(); }
+        if (p.hitCooldown<=0){ p.hp -= 10; p.hitCooldown = 0.35; spawnParticles(p.x,p.y,'#f00',8,2.2); SFX.hit(); addShake(s, 6, 0.25); }
         b.life = 0;
       }
     });
 
-    // hits (player bullets -> bots)
+    // Player bullets → bots
     s.bots = s.bots.filter(b => {
       let alive = true;
       s.bullets.forEach(proj => {
         if (proj.owner==='player' && Math.hypot(b.x-proj.x,b.y-proj.y) < (b.r+proj.r)){
-          b.hp -= 25; proj.life = 0; spawnParticles(b.x,b.y,'#f33',10,2); SFX.hit();
+          b.hp -= 25; proj.life = 0; spawnParticles(b.x,b.y,'#f33',10,2); SFX.hit(); s.shotsHit += 1;
           if (b.hp<=0){
-            alive = false; s.score++;
+            alive = false;
             const over = -b.hp; const extra = 20 + Math.min(40, Math.max(0, Math.round(over*1.2)));
-            spawnParticles(b.x,b.y,b.elite?'#ffd372':'#ff7b72', extra, 3); SFX.death(Math.min(1, over/50));
+            spawnParticles(b.x,b.y,b.elite?'#ffd372':'#ff7b72', extra, 3);
+            spawnExplosion(b.x,b.y, b.boss?1.6:(b.elite?1.2:1), b.boss?'#ffd372':'#ffb16b');
+            if (over > 30 || b.boss) addShake(s, b.boss?12:8, 0.35);
+            // Score & drops
+            s.score += b.boss ? 5 : (b.elite ? 2 : 1);
+            if (b.boss){ s.medkits.push({ x:b.x, y:b.y, r:12, timeLeft:30, heal:60 }); }
+            SFX.death(Math.min(1, over/50));
             maybeLevelUp();
           }
         }
@@ -514,37 +494,41 @@
       return alive;
     });
 
-    // touch damage
+    // Touch damage
     s.bots.forEach(b => {
       if (Math.hypot(b.x-p.x,b.y-p.y) < b.r + p.r){
-        if (p.hitCooldown<=0){ p.hp -= 10; p.hitCooldown = 0.35; spawnParticles(p.x,p.y,'#f00',8,2.2); SFX.hit(); }
+        if (p.hitCooldown<=0){ p.hp -= 10; p.hitCooldown = 0.35; spawnParticles(p.x,p.y,'#f00',8,2.2); SFX.hit(); addShake(s, 6, 0.25); }
       }
     });
 
-    // medkits
+    // Medkits
     trySpawnMedkit();
     s.medkits.forEach(m => m.timeLeft -= dt);
     s.medkits = s.medkits.filter(m => {
       if (m.timeLeft<=0) return false;
-      if (Math.hypot(m.x - p.x, m.y - p.y) < m.r + p.r){ p.hp = Math.min(100, p.hp + 30); spawnParticles(m.x,m.y,'#8cff8c',18,2.6); SFX.heal(); return false; }
+      if (Math.hypot(m.x - p.x, m.y - p.y) < m.r + p.r){ p.hp = Math.min(100, p.hp + (m.heal||30)); spawnParticles(m.x,m.y,'#8cff8c',18,2.6); SFX.heal(); return false; }
       return true;
     });
 
-    // particles
+    // Explosions
+    s.explosions.forEach(ex => { ex.t += dt; });
+    s.explosions = s.explosions.filter(ex => ex.t < ex.dur);
+
+    // Particles
     s.particles.forEach(pt => { pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.life-=dt; });
     s.particles = s.particles.filter(pt => pt.life>0);
 
-    // death (map persists)
+    // Death
     if (p.hp<=0){
       s.mode='gameover'; stopMusic();
       try { if (s.score > (s.bestScore||0)) { s.bestScore = s.score; localStorage.setItem('matatudo_best', String(s.bestScore)); } } catch {}
     }
 
-    // level popup timer
+    // Level up flash decay
     s.levelUpFlash = Math.max(0, s.levelUpFlash - dt);
   }
 
-  // ---------- Draw ----------
+  // ---------- Drawing ----------
   function drawSoldier(x,y,ang,r,flash){
     ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
     ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,r*0.9,r*0.9,r*0.4,0,0,Math.PI*2); ctx.fill();
@@ -566,9 +550,33 @@
     for (let i=0;i<30;i++){ const rx=o.x+4+Math.random()*(o.w-8), ry=o.y+4+Math.random()*(o.h-8); ctx.fillRect(rx,ry,1,1); }
     ctx.restore();
   }
+  function drawExplosions(){
+    s.explosions.forEach(ex => {
+      const t = ex.t / ex.dur;
+      const r = ex.r0 + (ex.r1 - ex.r0)*t;
+      const a = 1 - t;
+      ctx.save();
+      ctx.globalAlpha = a * 0.9;
+      ctx.strokeStyle = ex.color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(ex.x, ex.y, r, 0, Math.PI*2); ctx.stroke();
+      ctx.globalAlpha = a * 0.35;
+      ctx.fillStyle = ex.color; ctx.beginPath(); ctx.arc(ex.x, ex.y, r*0.6, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    });
+  }
   function draw(){
+    ctx.save();
+    applyShake(s); // screen shake transform
+
     ctx.fillStyle = s.groundPattern || '#0b1220'; ctx.fillRect(0,0,W,H);
-    ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.strokeRect(MAP_MARGIN,MAP_MARGIN,W-2*MAP_MARGIN,H-2*MAP_MARGIN);
+    // Low-HP flashing border
+    const low = s.player.hp <= 25 && s.mode==='playing';
+    if (low){
+      const pulse = (Math.sin(s.time*10)+1)/2; ctx.strokeStyle = `rgba(255,70,70,${0.2+0.6*pulse})`; ctx.lineWidth = 4;
+      ctx.strokeRect(MAP_MARGIN-2,MAP_MARGIN-2,W-2*MAP_MARGIN+4,H-2*MAP_MARGIN+4);
+    }
+    ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth = 1; ctx.strokeRect(MAP_MARGIN,MAP_MARGIN,W-2*MAP_MARGIN,H-2*MAP_MARGIN);
+
     s.obstacles.forEach(o=>drawObstacle(o, s.obstacleAlpha));
     s.medkits.forEach(m => {
       const bl = m.timeLeft<5 ? (Math.floor(m.timeLeft*10)%2===0) : true;
@@ -577,14 +585,22 @@
       ctx.strokeStyle='#94a3b8'; ctx.strokeRect(m.x-r+0.5,m.y-r+0.5,r*2-1,r*2-1);
       ctx.fillStyle='#e11d48'; ctx.fillRect(m.x-r*0.25,m.y-r*0.8,r*0.5,r*1.6); ctx.fillRect(m.x-r*0.8,m.y-r*0.25,r*1.6,r*0.5);
     });
+
     const p = s.player; const ang = Math.atan2(s.mouse.y-p.y,s.mouse.x-p.x); drawSoldier(p.x,p.y,ang,p.r,p.flashTimer);
+
     s.bots.forEach(b=>{
-      ctx.fillStyle=b.elite?'#f0c420':'#ff7b72'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+      ctx.save();
+      if (b.outline){ ctx.strokeStyle=b.outline; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2); ctx.stroke(); }
+      ctx.fillStyle = b.boss? '#ff6' : (b.elite?'#f0c420':'#ff7b72'); ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
       ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=2; ctx.beginPath();
-      const frac=Math.max(0,b.hp)/(b.elite?200:40); ctx.arc(b.x,b.y,b.r+4,-Math.PI/2,-Math.PI/2+frac*Math.PI*2); ctx.stroke();
+      const maxHP = b.boss?600:(b.elite?200:40); const frac=Math.max(0,b.hp)/maxHP;
+      ctx.arc(b.x,b.y,b.r+4,-Math.PI/2,-Math.PI/2+frac*Math.PI*2); ctx.stroke();
+      ctx.restore();
     });
+
     s.bullets.forEach(b=>{ ctx.fillStyle = b.owner==='player'?'#e6ff71':'#ffa8a3'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); });
     s.particles.forEach(pt=>{ ctx.fillStyle=pt.color; ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill(); });
+    drawExplosions();
 
     // HUD
     ctx.fillStyle='#fff'; ctx.font='14px ui-sans-serif,system-ui';
@@ -615,10 +631,15 @@
     } else if (s.mode==='gameover'){
       ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
       ctx.fillStyle='#fff'; ctx.font='bold 28px ui-sans-serif,system-ui'; ctx.fillText('Game Over', W/2, H/2-20);
-      ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText(`Score: ${s.score}   Best: ${s.bestScore}`, W/2, H/2+10);
-      ctx.fillText('Press R or click to restart', W/2, H/2+36);
+      const acc = s.shotsFired>0 ? Math.round(100*s.shotsHit/s.shotsFired) : 0;
+      ctx.font='16px ui-sans-serif,system-ui';
+      ctx.fillText(`Score: ${s.score}   Best: ${s.bestScore}`, W/2, H/2+8);
+      ctx.fillText(`Level Reached: ${s.level}   Accuracy: ${acc}%`, W/2, H/2+32);
+      ctx.fillText('Press R or click to restart', W/2, H/2+56);
     }
     ctx.textAlign='start';
+
+    ctx.restore(); // undo shake
   }
 
   // ---------- Input ----------
@@ -646,10 +667,7 @@
   window.addEventListener('keyup', e => { s.keys[e.key.toLowerCase()] = false; });
 
   // Pause button
-  btnPause.addEventListener('click', () => {
-    s.running = !s.running;
-    btnPause.textContent = s.running ? 'Pause' : 'Resume';
-  });
+  btnPause.addEventListener('click', () => { s.running = !s.running; btnPause.textContent = s.running ? 'Pause' : 'Resume'; });
 
   // ---------- Loop ----------
   let raf;
@@ -663,7 +681,7 @@
   }
   raf = requestAnimationFrame(step);
 
-  // ---------- Clean up on unload ----------
+  // ---------- Clean up ----------
   window.addEventListener('beforeunload', () => { cancelAnimationFrame(raf); stopMusic(); });
 
 })();
