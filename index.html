@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 7</title>
+<title>MataTudo — Alpha 8</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; background:#0b1220; color:#fff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
@@ -21,7 +21,7 @@
 <body>
 <div class="wrap">
   <div class="panel">
-    <div class="title">MataTudo — Alpha 7</div>
+    <div class="title">MataTudo — Alpha 8</div>
     <canvas id="game" width="900" height="560"></canvas>
     <div class="row">
       <button id="pause" class="btn">Pause</button>
@@ -36,8 +36,16 @@
 (() => {
   // ---------- Config ----------
   const W = 900, H = 560, MAP_MARGIN = 12;
-  const LEVEL_KILLS = 30; // kills per level (changed from 50 → 30)
+  const LEVEL_KILLS = 30; // kills per level
   const MUSIC_URL = "https://raw.githubusercontent.com/esteves7771/MataTudo/main/retro-synthwave-gaming-music-270173.mp3";
+
+  // Map generation hard rules
+  const MAX_OBS_W = 220;   // max obstacle width
+  const MAX_OBS_H = 180;   // max obstacle height
+  const MIN_GAP   = 28;    // min corridor width between obstacles / walls
+  const SAFE_RING = 80;    // keep around player on swap
+  const GRID_CELLS_X = 36; // coarse grid used for reachability test
+  const GRID_CELLS_Y = 22;
 
   // ---------- DOM ----------
   const cvs = document.getElementById('game');
@@ -51,6 +59,7 @@
   const rectOverAny = (rect, arr) => arr.some(o => !(rect.x + rect.w < o.x || rect.x > o.x + o.w || rect.y + rect.h < o.y || rect.y > o.y + o.h));
   const rectCircleOverlap = (cx, cy, r, o) => { const nx = clamp(cx, o.x, o.x + o.w), ny = clamp(cy, o.y, o.y + o.h); const dx = cx - nx, dy = cy - ny; return dx*dx + dy*dy <= r*r; };
   const bulletHitsObstacle = (b, o) => (b.x + b.r > o.x && b.x - b.r < o.x + o.w && b.y + b.r > o.y && b.y - b.r < o.y + o.h);
+  const entityBlockedBy = (x,y,r,obs) => obs.some(o => rectCircleOverlap(x,y,r,o));
 
   // Minimal push-out to resolve circle/rect overlap
   function pushCircleOutOfRect(e, o){
@@ -59,7 +68,6 @@
     let dx = cx - nx, dy = cy - ny;
     let dist = Math.hypot(dx,dy);
     if (dist === 0){
-      // push toward least-penetration side
       const left = Math.abs(cx - o.x), right = Math.abs((o.x + o.w) - cx);
       const top = Math.abs(cy - o.y), bottom = Math.abs((o.y + o.h) - cy);
       const m = Math.min(left,right,top,bottom);
@@ -81,7 +89,6 @@
     return false;
   }
   function resolveAllOverlaps(s){
-    // A few passes to ensure everything is clear of new walls
     const passes = 5;
     for (let k=0;k<passes;k++){
       s.obstacles.forEach(o => { if (rectCircleOverlap(s.player.x, s.player.y, s.player.r, o)) pushCircleOutOfRect(s.player, o); });
@@ -89,14 +96,18 @@
     }
   }
 
-  const entityBlockedBy = (x,y,r,obs) => obs.some(o => rectCircleOverlap(x,y,r,o));
-
-  const posIsFree = (x, y, r, s) => {
-    if (x < MAP_MARGIN + r || x > W - MAP_MARGIN - r || y < MAP_MARGIN + r || y > H - MAP_MARGIN - r) return false;
-    if (rectOverAny({ x: x - r, y: y - r, w: r*2, h: r*2 }, s.obstacles)) return false;
-    if (Math.hypot(x - s.player.x, y - s.player.y) < 80) return false;
-    return true;
-  };
+  // Corridor-safe obstacle rect with gap to borders
+  function insetToPlayArea(x,y,w,h){
+    const left = MAP_MARGIN + MIN_GAP;
+    const top = MAP_MARGIN + MIN_GAP;
+    const right = W - MAP_MARGIN - MIN_GAP;
+    const bottom = H - MAP_MARGIN - MIN_GAP;
+    w = Math.min(w, right - left);
+    h = Math.min(h, bottom - top);
+    x = clamp(x, left, right - w);
+    y = clamp(y, top, bottom - h);
+    return { x, y, w, h };
+  }
 
   // ---------- Audio (SFX via WebAudio, Music via HTMLAudio) ----------
   const audio = { ctx:null, master:null, sfxGain:null, muted:false, music:null };
@@ -195,92 +206,127 @@
     s.groundPattern = ctx.createPattern(pc,'repeat');
   })();
 
-  // ---------- Obstacles regen ----------
-  // Diverse generator: clusters, bars, random blocks; allows wall-on-wall overlaps,
-  // but NEVER places a wall directly overlapping the player or any bot at time of swap.
-  function generateDiverseObstacles(currentEntities){
-    const patterns = [];
-    const addRect = (obs, x,y,w,h) => {
-      // Keep within margins
-      x = clamp(x, MAP_MARGIN, W - MAP_MARGIN - w);
-      y = clamp(y, MAP_MARGIN, H - MAP_MARGIN - h);
-      const rect = {x,y,w,h};
-      // Skip if it would cover player/bots (prevents stuck)
-      const wouldCover = currentEntities.some(ent => rectCircleOverlap(ent.x, ent.y, ent.r + 2, rect));
-      if (!wouldCover) obs.push(rect);
-    };
-
-    // Pattern A: central cluster + satellites
-    patterns.push(() => {
-      const obs = [];
-      const cx = MAP_MARGIN + 80 + Math.random()*(W-2*(MAP_MARGIN+80));
-      const cy = MAP_MARGIN + 70 + Math.random()*(H-2*(MAP_MARGIN+70));
-      const coreW = 80 + Math.random()*140, coreH = 60 + Math.random()*120;
-      addRect(obs, cx - coreW/2, cy - coreH/2, coreW, coreH);
-      const n = 3 + Math.floor(Math.random()*4);
-      for (let i=0;i<n;i++){
-        const w = 40 + Math.random()*100, h = 30 + Math.random()*80;
-        const ox = cx + (Math.random()*220 - 110), oy = cy + (Math.random()*180 - 90);
-        addRect(obs, ox - w/2, oy - h/2, w, h);
+  // ---------- Connectivity test on coarse grid ----------
+  function buildGridFromObstacles(obstacles){
+    const grid = Array.from({length:GRID_CELLS_Y}, ()=>Array(GRID_CELLS_X).fill(0)); // 0 free, 1 blocked
+    const cellW = (W - 2*MAP_MARGIN) / GRID_CELLS_X;
+    const cellH = (H - 2*MAP_MARGIN) / GRID_CELLS_Y;
+    for (let y=0;y<GRID_CELLS_Y;y++){
+      for (let x=0;x<GRID_CELLS_X;x++){
+        const cx = MAP_MARGIN + x*cellW + cellW/2;
+        const cy = MAP_MARGIN + y*cellH + cellH/2;
+        // Treat the player radius + gap as the clearance requirement
+        const rr = 12 + MIN_GAP/2;
+        if (obstacles.some(o => rectCircleOverlap(cx, cy, rr, o))) grid[y][x] = 1;
       }
-      return obs;
-    });
-
-    // Pattern B: horizontal/vertical bars (corridors)
-    patterns.push(() => {
-      const obs = [];
-      const bars = 3 + Math.floor(Math.random()*3);
-      for (let i=0;i<bars;i++){
-        const horiz = Math.random() < 0.5;
-        if (horiz){
-          const w = 160 + Math.random()*260, h = 24 + Math.random()*40;
-          const x = MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w);
-          const y = MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h);
-          addRect(obs, x,y,w,h);
-        } else {
-          const w = 26 + Math.random()*42, h = 160 + Math.random()*260;
-          const x = MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w);
-          const y = MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h);
-          addRect(obs, x,y,w,h);
-        }
-      }
-      return obs;
-    });
-
-    // Pattern C: scattered blocks (allows overlaps for messy stacks)
-    patterns.push(() => {
-      const obs = [];
-      const count = 6 + Math.floor(Math.random()*6);
-      for (let i=0;i<count;i++){
-        const w = 50 + Math.random()*130, h = 50 + Math.random()*130;
-        const x = MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w);
-        const y = MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h);
-        addRect(obs, x,y,w,h);
-      }
-      return obs;
-    });
-
-    // Pick a couple patterns and merge (overlaps allowed)
-    let obs = [];
-    const picks = 2 + Math.floor(Math.random()*2); // 2-3 patterns
-    for (let i=0;i<picks;i++){
-      const part = patterns[Math.floor(Math.random()*patterns.length)]();
-      obs = obs.concat(part);
     }
-    // Keep within a reasonable cap
-    if (obs.length > 14) obs.length = 14;
-    return obs;
+    return { grid, cellW, cellH };
+  }
+  function bfsReach(grid, startX, startY){
+    const Hh = grid.length, Ww = grid[0].length;
+    const q=[[startX,startY]]; const seen = Array.from({length:Hh},()=>Array(Ww).fill(false));
+    seen[startY][startX] = true;
+    const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+    while(q.length){
+      const [x,y]=q.shift();
+      for(const [dx,dy] of dirs){
+        const nx=x+dx, ny=y+dy;
+        if(nx<0||ny<0||nx>=Ww||ny>=Hh) continue;
+        if(seen[ny][nx]) continue;
+        if(grid[ny][nx]===1) continue;
+        seen[ny][nx]=true; q.push([nx,ny]);
+      }
+    }
+    return seen;
+  }
+  function gridCellFromXY(x,y,cellW,cellH){
+    const gx = clamp(Math.floor((x - MAP_MARGIN)/cellW), 0, GRID_CELLS_X-1);
+    const gy = clamp(Math.floor((y - MAP_MARGIN)/cellH), 0, GRID_CELLS_Y-1);
+    return {gx, gy};
+  }
+  function doorsReachable(obstacles, px, py){
+    const { grid, cellW, cellH } = buildGridFromObstacles(obstacles);
+    const { gx, gy } = gridCellFromXY(px, py, cellW, cellH);
+    if (grid[gy][gx]===1) return false; // start blocked → reject
+    const seen = bfsReach(grid, gx, gy);
+    // Pick four “door” cells near each edge center
+    const doors = [
+      {gx: Math.floor(GRID_CELLS_X/2), gy: 0},                         // top
+      {gx: Math.floor(GRID_CELLS_X/2), gy: GRID_CELLS_Y-1},            // bottom
+      {gx: 0,                        gy: Math.floor(GRID_CELLS_Y/2)},  // left
+      {gx: GRID_CELLS_X-1,           gy: Math.floor(GRID_CELLS_Y/2)},  // right
+    ];
+    return doors.every(d => seen[d.gy][d.gx] === true);
   }
 
-  function randomObstaclesAvoidEntities(){
-    const ents = [{x:s.player.x, y:s.player.y, r:s.player.r}].concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r})));
-    // Try a bunch of times to get a layout that avoids covering entities
-    for (let tries=0; tries<20; tries++){
-      const obs = generateDiverseObstacles(ents);
-      const coversEntity = ents.some(ent => entityBlockedBy(ent.x, ent.y, ent.r, obs));
-      if (!coversEntity) return obs;
+  // ---------- Obstacles regen (navigable) ----------
+  function generateCandidateObstacles(currentEntities){
+    const obstacles = [];
+    const addRect = (x,y,w,h) => {
+      w = Math.min(w, MAX_OBS_W);
+      h = Math.min(h, MAX_OBS_H);
+      let r = insetToPlayArea(x,y,w,h);
+      // enforce MIN_GAP between obstacles by expanding rectangles in checks
+      const inflated = { x: r.x - MIN_GAP/2, y: r.y - MIN_GAP/2, w: r.w + MIN_GAP, h: r.h + MIN_GAP };
+      if (rectOverAny(inflated, obstacles.map(o=>({x:o.x - MIN_GAP/2, y:o.y - MIN_GAP/2, w:o.w + MIN_GAP, h:o.h + MIN_GAP})))) return;
+      // don’t cover current entities
+      const wouldCover = currentEntities.some(ent => rectCircleOverlap(ent.x, ent.y, ent.r + 2, r));
+      if (wouldCover) return;
+      obstacles.push(r);
+    };
+
+    // Mix of patterns while respecting gaps
+    const patternCount = 2 + Math.floor(Math.random()*2); // 2-3
+    for (let k=0;k<patternCount;k++){
+      const pick = Math.floor(Math.random()*3);
+      if (pick===0){
+        // cluster + satellites
+        const cx = MAP_MARGIN + 120 + Math.random()*(W-2*(MAP_MARGIN+120));
+        const cy = MAP_MARGIN + 90  + Math.random()*(H-2*(MAP_MARGIN+90));
+        const coreW = 80 + Math.random()*120, coreH = 60 + Math.random()*100;
+        addRect(cx-coreW/2, cy-coreH/2, coreW, coreH);
+        const n = 3 + Math.floor(Math.random()*4);
+        for (let i=0;i<n;i++){
+          const w = 40 + Math.random()*80, h = 30 + Math.random()*70;
+          addRect(cx + (Math.random()*220-110) - w/2, cy + (Math.random()*160-80) - h/2, w, h);
+        }
+      } else if (pick===1){
+        // corridors (bars)
+        const bars = 3 + Math.floor(Math.random()*3);
+        for (let i=0;i<bars;i++){
+          const horiz = Math.random() < 0.5;
+          if (horiz){
+            const w = 160 + Math.random()*200, h = 22 + Math.random()*32;
+            addRect(MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w), MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h), w, h);
+          } else {
+            const w = 22 + Math.random()*32, h = 160 + Math.random()*200;
+            addRect(MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w), MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h), w, h);
+          }
+        }
+      } else {
+        // scattered blocks
+        const count = 6 + Math.floor(Math.random()*6);
+        for (let i=0;i<count;i++){
+          const w = 50 + Math.random()*110, h = 50 + Math.random()*110;
+          addRect(MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w), MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h), w, h);
+        }
+      }
     }
-    // Fallback: keep current
+    // cap total to keep space navigable
+    if (obstacles.length > 14) obstacles.length = 14;
+    return obstacles;
+  }
+
+  function randomObstaclesNavigable(){
+    // entities to protect (no obstacles over them during swap)
+    const ents = [{x:s.player.x, y:s.player.y, r:SAFE_RING}].concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r+SAFE_RING*0.25})));
+
+    // try several times to get a layout with door connectivity
+    for (let tries=0; tries<30; tries++){
+      const obs = generateCandidateObstacles(ents);
+      if (doorsReachable(obs, s.player.x, s.player.y)) return obs;
+    }
+    // Fallback to previous (very rare)
     return s.obstacles;
   }
 
@@ -293,8 +339,8 @@
     if (s.obstaclePhase==='fadeOut'){
       s.obstacleAlpha = 1 - t;
       if (s.obstacleFadeT >= DUR){
-        s.obstacles = randomObstaclesAvoidEntities();
-        resolveAllOverlaps(s); // Safety net even after avoiding overlaps
+        s.obstacles = randomObstaclesNavigable();
+        resolveAllOverlaps(s); // safety net
         s.obstaclePhase='fadeIn'; s.obstacleFadeT = 0;
       }
     } else {
@@ -318,7 +364,6 @@
       else if (edge===1){ x = W - MAP_MARGIN - r - 2; y = Math.random()*(H-2*MAP_MARGIN)+MAP_MARGIN; }
       else if (edge===2){ x = Math.random()*(W-2*MAP_MARGIN)+MAP_MARGIN; y = MAP_MARGIN + r + 2; }
       else { x = Math.random()*(W-2*MAP_MARGIN)+MAP_MARGIN; y = H - MAP_MARGIN - r - 2; }
-      // Also make sure the spawn point isn't immediately inside a wall
       if (!entityBlockedBy(x,y,r,s.obstacles)) break;
     }
     const base = 80+Math.random()*35;
@@ -377,7 +422,7 @@
     const spawnBase = Math.max(0.5, 1.6 - Math.min(60, s.score/5)*0.01);
     const spawnScaled = Math.max(0.25, spawnBase * (1 - 0.06*(s.level-1)));
     if (s.spawnTimer<=0){
-      const eliteChance = Math.min(0.5, 0.05*s.level); // rising chance
+      const eliteChance = Math.min(0.5, 0.05*s.level);
       spawnBot(Math.random() < eliteChance);
       s.spawnTimer = spawnScaled;
     }
@@ -406,9 +451,8 @@
     if (s.mouse.down && p.fireCooldown<=0){
       const dx = s.mouse.x - p.x, dy = s.mouse.y - p.y, d = Math.hypot(dx,dy) || 1;
       const baseAng = Math.atan2(dy,dx);
-
       if (s.level >= 2) {
-        const spread = 0.07; // radians
+        const spread = 0.07;
         const a1 = baseAng - spread/2;
         const a2 = baseAng + spread/2;
         s.bullets.push({ x:p.x, y:p.y, vx:Math.cos(a1)*520, vy:Math.sin(a1)*520, r:3, owner:'player', life:2 });
@@ -416,8 +460,7 @@
       } else {
         s.bullets.push({ x:p.x, y:p.y, vx:dx/d*520, vy:dy/d*520, r:3, owner:'player', life:2 });
       }
-
-      const ang = baseAng; spawnParticles(p.x+Math.cos(ang)*p.r, p.y+Math.sin(ang)*p.r, '#fff8', 6, 1.6);
+      spawnParticles(p.x+Math.cos(baseAng)*p.r, p.y+Math.sin(baseAng)*p.r, '#fff8', 6, 1.6);
       p.flashTimer = 0.07; p.fireCooldown = 0.15; SFX.shot();
     }
 
@@ -627,3 +670,4 @@
 </script>
 </body>
 </html>
+
