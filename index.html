@@ -332,7 +332,7 @@
     if(grid[gy][gx]===1) return false;
     const seen=Array.from({length:GRID_Y},()=>Array(GRID_X).fill(false)); const q=[[gx,gy]], dirs=[[1,0],[-1,0],[0,1],[0,-1]]; seen[gy][gx]=true;
     while(q.length){ const [x,y]=q.shift(); for(const [dx,dy] of dirs){ const nx=x+dx,ny=y+dy; if(nx<0||ny<0||nx>=GRID_X||ny>=GRID_Y) continue; if(seen[ny][nx]||grid[ny][nx]===1) continue; seen[ny][nx]=true; q.push([nx,ny]); } }
-    const doors=[{gx:Math.floor(GRID_X/2),gy:0},{gx:Math.floor(GRID_X/2),gy:GRID_Y-1},{gx:0,gy:Math.floor(GRID_X/2)},{gx:GRID_X-1,gy:Math.floor(GRID_X/2)}];
+    const doors=[{gx:Math.floor(GRID_X/2),gy:0},{gx:Math.floor(GRID_X/2),gy:GRID_Y-1},{gx:0,gy:Math.floor(GRID_Y/2)},{gx:GRID_X-1,gy:Math.floor(GRID_Y/2)}];
     return doors.every(d=>seen[d.gy][d.gx]===true);
   }
 
