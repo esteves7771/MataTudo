@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 10</title>
+<title>MataTudo — Alpha 11</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; background:#0b1220; color:#fff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
@@ -21,9 +21,9 @@
 <body>
 <div class="wrap">
   <div class="panel">
-    <div class="title">MataTudo — Alpha 10</div>
-    <!-- +15% bigger -->
-    <canvas id="game" width="1035" height="644"></canvas>
+    <div class="title">MataTudo — Alpha 11</div>
+    <!-- +10% bigger than Alpha 10 -->
+    <canvas id="game" width="1140" height="708"></canvas>
     <div class="row">
       <button id="pause" class="btn">Pause</button>
       <button id="mute" class="btn">Mute</button>
@@ -36,18 +36,18 @@
 <script>
 (() => {
   // ---------- Config ----------
-  const W = 1035, H = 644, MAP_MARGIN = 12;            // was 900×560 → now +15%
+  const W = 1140, H = 708, MAP_MARGIN = 12;            // arena size (Alpha 11)
   const LEVEL_KILLS = 30;                               // kills per level
   const MEDKIT_EVERY = 25;                              // kills
   const MUSIC_URL = "https://raw.githubusercontent.com/esteves7771/MataTudo/main/retro-synthwave-gaming-music-270173.mp3";
 
-  // Damage (reduced by ~15%)
-  const BOT_BULLET_DMG = 8.5;                           // was 10
-  const BOT_TOUCH_DMG  = 8.5;                           // was 10
+  // Damage (kept reduced ~15%)
+  const BOT_BULLET_DMG = 8.5;
+  const BOT_TOUCH_DMG  = 8.5;
 
   // Map constraints
-  const MAX_OBS_W = 220, MAX_OBS_H = 180, MIN_GAP = 28, SAFE_RING = 80;
-  const GRID_CELLS_X = 41, GRID_CELLS_Y = 25;           // up a bit to match larger map
+  const MAX_OBS_W = 240, MAX_OBS_H = 200, MIN_GAP = 28, SAFE_RING = 80;
+  const GRID_CELLS_X = 45, GRID_CELLS_Y = 27;           // scaled with bigger map
 
   // ---------- DOM ----------
   const cvs = document.getElementById('game');
@@ -136,6 +136,15 @@
     const now = ac.currentTime; g.gain.setValueAtTime(gain,now); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
     osc.start(now); osc.stop(now+dur);
   }
+  function whoosh(){
+    if (audio.muted) return; ensureAC(); if (!audio.ctx) return;
+    const ac=audio.ctx; const noise=ac.createBuffer(1, ac.sampleRate*0.6, ac.sampleRate); const d=noise.getChannelData(0);
+    for(let i=0;i<d.length;i++){ const t=i/d.length; d[i]=(Math.random()*2-1)*(1-t)*0.6; }
+    const src=ac.createBufferSource(); src.buffer=noise;
+    const bp=ac.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(400,ac.currentTime); bp.frequency.linearRampToValueAtTime(1200, ac.currentTime+0.6);
+    const g=ac.createGain(); g.gain.value=0.05; g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime+0.6);
+    src.connect(bp).connect(g).connect(audio.sfxGain); src.start();
+  }
   function noiseBurst(dur=0.25, gain=0.05){
     if (audio.muted) return; ensureAC(); if (!audio.ctx) return;
     const ac = audio.ctx, buf = ac.createBuffer(1,ac.sampleRate*dur,ac.sampleRate), data = buf.getChannelData(0);
@@ -172,13 +181,16 @@
     groundPattern:null,
     spawnTimer:0, firstWaveRemaining:4, firstWaveInterval:0.4, firstWaveTimer:0.4,
     obstacles:[
-      { x:320,y:200,w:110,h:100 },
-      { x:720,y:420,w:140,h:70 },
-      { x:520,y:110,w:80,h:80 },
-      { x:150,y:460,w:160,h:40 },
+      { x:360,y:230,w:120,h:110 },
+      { x:780,y:460,w:160,h:80 },
+      { x:560,y:120,w:90,h:90 },
+      { x:170,y:510,w:170,h:44 },
     ],
     obstacleAlpha:1, obstaclePhase:'stable', obstacleFadeT:0,
-    shakeT:0, shakeMag:0
+    shakeT:0, shakeMag:0,
+    banner:null,                                        // {text,t,dur}
+    spawnEase:1.0,                                      // >1 = easier (slower spawns) right after boss death
+    spawnEaseT:0                                        // time left for easing
   };
   try { const saved = localStorage.getItem('matatudo_best'); if (saved) s.bestScore = parseInt(saved, 10) || 0; } catch {}
 
@@ -251,36 +263,36 @@
     for (let k=0;k<patternCount;k++){
       const pick = Math.floor(Math.random()*3);
       if (pick===0){
-        const cx = MAP_MARGIN + 140 + Math.random()*(W-2*(MAP_MARGIN+140));
-        const cy = MAP_MARGIN + 110 + Math.random()*(H-2*(MAP_MARGIN+110));
-        const coreW = 80 + Math.random()*120, coreH = 60 + Math.random()*100;
+        const cx = MAP_MARGIN + 160 + Math.random()*(W-2*(MAP_MARGIN+160));
+        const cy = MAP_MARGIN + 120 + Math.random()*(H-2*(MAP_MARGIN+120));
+        const coreW = 80 + Math.random()*130, coreH = 60 + Math.random()*110;
         addRect(cx-coreW/2, cy-coreH/2, coreW, coreH);
         const n = 3 + Math.floor(Math.random()*4);
         for (let i=0;i<n;i++){
-          const w = 40 + Math.random()*80, h = 30 + Math.random()*70;
-          addRect(cx + (Math.random()*260-130) - w/2, cy + (Math.random()*180-90) - h/2, w, h);
+          const w = 40 + Math.random()*90, h = 30 + Math.random()*80;
+          addRect(cx + (Math.random()*280-140) - w/2, cy + (Math.random()*200-100) - h/2, w, h);
         }
       } else if (pick===1){
         const bars = 3 + Math.floor(Math.random()*3);
         for (let i=0;i<bars;i++){
           const horiz = Math.random() < 0.5;
           if (horiz){
-            const w = 160 + Math.random()*220, h = 22 + Math.random()*36;
+            const w = 180 + Math.random()*240, h = 22 + Math.random()*36;
             addRect(MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w), MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h), w, h);
           } else {
-            const w = 22 + Math.random()*36, h = 160 + Math.random()*220;
+            const w = 22 + Math.random()*36, h = 180 + Math.random()*240;
             addRect(MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w), MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h), w, h);
           }
         }
       } else {
-        const count = 7 + Math.floor(Math.random()*7);
+        const count = 7 + Math.floor(Math.random()*8);
         for (let i=0;i<count;i++){
           const w = 50 + Math.random()*120, h = 50 + Math.random()*120;
           addRect(MAP_MARGIN + Math.random()*(W-2*MAP_MARGIN - w), MAP_MARGIN + Math.random()*(H-2*MAP_MARGIN - h), w, h);
         }
       }
     }
-    if (obstacles.length > 16) obstacles.length = 16;
+    if (obstacles.length > 18) obstacles.length = 18;
     return obstacles;
   }
   function randomObstaclesNavigable(){
@@ -292,6 +304,17 @@
     return s.obstacles;
   }
   function triggerObstacleSwap(){ s.obstaclePhase='fadeOut'; s.obstacleFadeT=0; }
+  function relocateMedkitsIfBlocked(){
+    s.medkits = s.medkits.filter(m => {
+      if (!entityBlockedBy(m.x, m.y, m.r, s.obstacles)) return true;
+      // try relocate up to 40 times
+      for (let i=0;i<40;i++){
+        const r=10; const x=MAP_MARGIN+r + Math.random()*(W-2*(MAP_MARGIN+r)); const y=MAP_MARGIN+r + Math.random()*(H-2*(MAP_MARGIN+r));
+        if (!entityBlockedBy(x,y,r,s.obstacles)){ m.x=x; m.y=y; return true; }
+      }
+      return false; // give up
+    });
+  }
   function updateObstacleFade(dt){
     if (s.obstaclePhase==='stable') return;
     const DUR = 0.45; s.obstacleFadeT += dt; const t = clamp(s.obstacleFadeT / DUR, 0, 1);
@@ -300,6 +323,7 @@
       if (s.obstacleFadeT >= DUR){
         s.obstacles = randomObstaclesNavigable();
         resolveAllOverlaps(s);
+        relocateMedkitsIfBlocked();
         s.obstaclePhase='fadeIn'; s.obstacleFadeT = 0;
       }
     } else {
@@ -308,7 +332,7 @@
     }
   }
 
-  // ---------- Spawners ----------
+  // ---------- Spawners / FX ----------
   function spawnParticles(x,y,color,count,size=2){
     for (let i=0;i<count;i++){
       const a = Math.random()*Math.PI*2, v=40+Math.random()*80;
@@ -343,7 +367,7 @@
   }
 
   function spawnBot(elite=false, boss=false){
-    let tries=0, x=0, y=0, r=boss?28:(elite?16:12);
+    let tries=0, x=0, y=0, r=boss?30:(elite?16:12);
     while (tries++<60){
       const edge=Math.floor(Math.random()*4);
       if (edge===0){ x = MAP_MARGIN + r + 2; y = rand(MAP_MARGIN, H-MAP_MARGIN); }
@@ -353,7 +377,7 @@
       if (!entityBlockedBy(x,y,r,s.obstacles)) break;
     }
     const baseSpd = boss ? 70 : 80+Math.random()*35;
-    const hp = boss? 700 : (elite?200:40);
+    const hp = boss? 770 : (elite?200:40);   // +10% boss HP
     const speed = baseSpd * (1 + 0.08*(s.level-1)) * (elite?0.9:1);
     const shootEvery = (boss? 0.65 : (0.9 + Math.random()*0.9)) * (elite?0.85:1);
     let speedMul = 1, extraHP = 0, mod = null;
@@ -361,20 +385,17 @@
       if (Math.random() < 0.15){ speedMul = 1.35; mod = (mod||'') + 'S'; }
       if (Math.random() < 0.12){ extraHP = 40; mod = (mod||'') + 'H'; }
     }
-    const bot = { x,y,r,speed:speed*speedMul,hp:hp+extraHP,fireCooldown:0,shootEvery,jitter:Math.random()*Math.PI*2, elite, boss, mod, outline: (boss? '#ff9' : (mod? '#7cf' : null)) };
-    if (boss){
-      bot.phase = 'aim';           // 'aim' -> 'burst' -> 'spiral' loops
-      bot.phaseT = 0;              // time spent in current phase
-      bot.spiralA = 0;
-    }
+    const bot = { x,y,r,speed:speed*speedMul,hp:hp+extraHP,fireCooldown:0,shootEvery,jitter:Math.random()*Math.PI*2, elite, boss, mod, outline: (boss? '#f88' : (mod? '#7cf' : null)) };
+    if (boss){ bot.phase='aim'; bot.phaseT=0; bot.spiralA=0; }
     s.bots.push(bot);
   }
   function spawnBossSolo(){
     // clear all non-boss before the boss enters
     s.bots = s.bots.filter(b=>b.boss);
     spawnBot(false,true);
+    s.banner = { text:'BOSS INCOMING!', t:0, dur:1.8 };
+    whoosh();
   }
-
   function trySpawnMedkit(){
     if (s.score>0 && s.score%MEDKIT_EVERY===0 && s.lastMedkitAtScore!==s.score){
       for (let i=0;i<80;i++){
@@ -397,19 +418,23 @@
   // ---------- Start/Reset ----------
   function startGame(){
     ensureAC(); startMusic();
-    // Keep existing s.obstacles (map persists after death)
+    // Keep existing map after death
     s.player = { x:W/2, y:H/2, r:12, speed:240, hp:100, fireCooldown:0, flashTimer:0, hitCooldown:0 };
     s.bullets=[]; s.bots=[]; s.particles=[]; s.medkits=[]; s.explosions=[];
     s.spawnTimer=0; s.score=0; s.lastEliteAtScore=0; s.lastMedkitAtScore=0;
     s.firstWaveRemaining=4; s.firstWaveTimer=s.firstWaveInterval;
     s.level=1; s.levelUpFlash=0; s.obstaclePhase='stable'; s.obstacleAlpha=1; s.pendingBoss=false;
     s.shotsFired=0; s.shotsHit=0;
+    s.spawnEase = 1.0; s.spawnEaseT = 0;
     s.mode='countdown'; s.countdown=2;
   }
 
   // ---------- Update ----------
   function update(dt){
     s.dt = dt; s.time += dt; updateObstacleFade(dt);
+    if (s.spawnEaseT>0){ s.spawnEaseT -= dt; s.spawnEase = 1 + 0.25*(s.spawnEaseT/20); if (s.spawnEaseT <= 0) s.spawnEase = 1; }
+    if (s.banner){ s.banner.t += dt; if (s.banner.t >= s.banner.dur) s.banner = null; }
+
     if (!s.running) return;
 
     if (s.mode==='intro'){ s.introTime += dt; if (s.introTime>1.6){ s.mode='menu'; stopMusic(); } return; }
@@ -422,9 +447,9 @@
     s.spawnTimer -= dt;
     if (!bossAlive && !s.pendingBoss){
       const spawnBase = Math.max(0.5, 1.6 - Math.min(60, s.score/5)*0.01);
-      const spawnScaled = Math.max(0.25, spawnBase * (1 - 0.06*(s.level-1)));
+      const spawnScaled = Math.max(0.25, spawnBase * (1 - 0.06*(s.level-1))) * s.spawnEase;  // eased after boss
       if (s.spawnTimer<=0){
-        const eliteChance = Math.min(0.5, 0.05*s.level);
+        const eliteChance = Math.min(0.5, 0.05*s.level) * (s.spawnEaseT>0 ? 0.6 : 1); // fewer elites right after boss
         spawnBot(Math.random() < eliteChance, false);
         s.spawnTimer = spawnScaled;
       }
@@ -532,12 +557,16 @@
           if (b.hp<=0){
             alive = false;
             const over = -b.hp; const extra = 20 + Math.min(40, Math.max(0, Math.round(over*1.2)));
-            spawnParticles(b.x,b.y,b.boss?'#ffd372':(b.elite?'#ffd372':'#ff7b72'), extra, 3);
-            spawnExplosion(b.x,b.y, b.boss?1.7:(b.elite?1.2:1), b.boss?'#ffd372':'#ffb16b');
+            spawnParticles(b.x,b.y,b.boss?'#ff8888':(b.elite?'#ffd372':'#ff7b72'), extra, 3);
+            spawnExplosion(b.x,b.y, b.boss?1.8:(b.elite?1.2:1), b.boss?'#ff6666':'#ffb16b');
             if (over > 30 || b.boss) addShake(s, b.boss?12:8, 0.35);
             // Score & drops
             s.score += b.boss ? 5 : (b.elite ? 2 : 1);
-            if (b.boss){ s.medkits.push({ x:b.x, y:b.y, r:12, timeLeft:30, heal:60 }); }
+            if (b.boss){
+              s.medkits.push({ x:b.x, y:b.y, r:12, timeLeft:30, heal:60 });
+              // soften post-boss for 20s
+              s.spawnEaseT = 20; s.spawnEase = 1.25;
+            }
             SFX.death(Math.min(1, over/50));
             maybeLevelUp();
           }
@@ -602,6 +631,17 @@
     for (let i=0;i<30;i++){ const rx=o.x+4+Math.random()*(o.w-8), ry=o.y+4+Math.random()*(o.h-8); ctx.fillRect(rx,ry,1,1); }
     ctx.restore();
   }
+  function drawBossTexture(b){
+    // subtle radial + stripes for red boss
+    const r=b.r;
+    const grad = ctx.createRadialGradient(b.x- r*0.2, b.y- r*0.2, r*0.2, b.x, b.y, r*1.2);
+    grad.addColorStop(0, '#ff6b6b'); grad.addColorStop(1, '#b81616');
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(b.x,b.y,r,0,Math.PI*2); ctx.fill();
+    ctx.save(); ctx.clip(); ctx.globalAlpha=0.18;
+    ctx.strokeStyle='#ffffff'; ctx.lineWidth=2;
+    for(let a=-r; a<=r; a+=6){ ctx.beginPath(); ctx.moveTo(b.x - r, b.y + a); ctx.lineTo(b.x + r, b.y + a + 8); ctx.stroke(); }
+    ctx.restore();
+  }
   function drawExplosions(){
     s.explosions.forEach(ex => {
       const t = ex.t / ex.dur;
@@ -643,14 +683,14 @@
     s.bots.forEach(b=>{
       ctx.save();
       if (b.outline){ ctx.strokeStyle=b.outline; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2); ctx.stroke(); }
-      ctx.fillStyle = b.boss? '#ff6' : (b.elite?'#f0c420':'#ff7b72'); ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+      if (b.boss) drawBossTexture(b); else { ctx.fillStyle = b.elite?'#f0c420':'#ff7b72'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); }
       ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=2; ctx.beginPath();
-      const maxHP = b.boss?700:(b.elite?200:40); const frac=Math.max(0,b.hp)/maxHP;
+      const maxHP = b.boss?770:(b.elite?200:40); const frac=Math.max(0,b.hp)/maxHP;
       ctx.arc(b.x,b.y,b.r+4,-Math.PI/2,-Math.PI/2+frac*Math.PI*2); ctx.stroke();
       ctx.restore();
     });
 
-    s.bullets.forEach(b=>{ ctx.fillStyle = b.owner==='player'?'#e6ff71':(b.boss?'#ffd372':'#ffa8a3'); ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); });
+    s.bullets.forEach(b=>{ ctx.fillStyle = b.owner==='player'?'#e6ff71':(b.boss?'#ffb1b1':'#ffa8a3'); ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); });
     s.particles.forEach(pt=>{ ctx.fillStyle=pt.color; ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill(); });
     drawExplosions();
 
@@ -664,6 +704,13 @@
     ctx.textAlign='center';
     if (s.levelUpFlash > 0 && Math.floor(s.time*6)%2===0){
       ctx.font='bold 28px ui-sans-serif,system-ui'; ctx.fillText('Level Up!', W/2, MAP_MARGIN + 34);
+    }
+    if (s.banner){
+      const alpha = 1 - Math.max(0, (s.banner.t/s.banner.dur) - 0.6);
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#fff'; ctx.font='bold 40px ui-sans-serif,system-ui'; ctx.fillText(s.banner.text, W/2, H/2);
+      ctx.globalAlpha = 1;
     }
     if (s.mode==='intro'){
       ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
