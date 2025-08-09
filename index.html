@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 13.2</title>
+<title>MataTudo — Alpha 13.3</title>
 <style>
   :root { color-scheme: dark; }
   html,body { height:100%; margin:0; background:#0b1220; color:#e8f0ff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
   .shell { min-height:100%; display:flex; gap:22px; align-items:center; justify-content:center; padding:18px; }
   .sidebar {
-    width:220px; min-height:708px; border-radius:14px;
+    width:220px; min-height:780px; border-radius:14px;
     background:#0c1528; border:1px solid rgba(255,255,255,.08);
     box-shadow:0 8px 28px rgba(0,0,0,.35); padding:14px 12px;
   }
@@ -23,20 +23,10 @@
   .row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .hudnum { font-weight:700; }
   canvas { background:#000; border-radius:16px; border:1px solid rgba(255,255,255,.08); box-shadow:0 10px 30px rgba(0,0,0,.35); }
-  .controls { margin-top:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.2); background:transparent; color:#fff; cursor:pointer; }
-  .btn:hover { border-color: rgba(255,255,255,.6); }
-  input[type="range"]{ width:120px; }
   .title { grid-column:1/-1; font-weight:800; font-size:18px; letter-spacing:.2px; text-align:center; margin-bottom:6px; }
   .hint { font-size:12px; opacity:.8; text-align:center; margin-top:6px; }
-  .hof {
-    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-    background:rgba(0,0,0,.6); z-index:10;
-  }
-  .hof-inner {
-    width:min(880px, 92vw); background:#060d1c; border:1px solid rgba(255,255,255,.1);
-    border-radius:14px; padding:22px 18px; box-shadow:0 12px 40px rgba(0,0,0,.6);
-  }
+  .hof { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.6); z-index:10; }
+  .hof-inner { width:min(880px, 92vw); background:#060d1c; border:1px solid rgba(255,255,255,.1); border-radius:14px; padding:22px 18px; box-shadow:0 12px 40px rgba(0,0,0,.6); }
   .hof-title { text-align:center; font-weight:900; font-size:26px; margin-bottom:4px; letter-spacing:.5px; }
   .hof-sub { text-align:center; font-size:12px; opacity:.8; margin-bottom:12px; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -49,8 +39,9 @@
 </head>
 <body>
 <div class="shell">
+  <!-- Retro sidebar HUD -->
   <aside class="sidebar mono" id="sidebar">
-    <div class="sb-title">MataTudo <span class="build">• A13.2</span></div>
+    <div class="sb-title">MataTudo <span class="build">• A13.3</span></div>
     <div class="sb-card">
       <div class="row"><span>Score</span><span id="sbScore" class="hudnum">0</span></div>
       <div class="row"><span>Best</span><span id="sbBest" class="hudnum">0</span></div>
@@ -68,6 +59,7 @@
         <li>WASD / Arrows move</li>
         <li>Mouse aims · Click shoots</li>
         <li>M mute · R restart</li>
+        <li>SPACE starts</li>
         <li>Level +1 every 30 kills</li>
         <li>Boss every 5 levels</li>
       </ul>
@@ -81,13 +73,15 @@
     </div>
   </aside>
 
+  <!-- Playfield -->
   <main>
-    <div class="title">MataTudo — Alpha 13.2</div>
-    <canvas id="game" width="1140" height="708"></canvas>
-    <div class="hint">Any Key/Click starts • Level every 30 kills • Boss every 5 levels • Yellow bots = 2 pts • Map persists on Game Over</div>
+    <div class="title">MataTudo — Alpha 13.3</div>
+    <canvas id="game" width="1260" height="780"></canvas>
+    <div class="hint">Press <b>SPACE</b> to start • Level/30 kills • Boss/5 levels • Yellow bots = 2 pts • Map persists on Game Over, resets to first map on restart</div>
   </main>
 </div>
 
+<!-- Hall of Fame -->
 <div class="hof" id="hof">
   <div class="hof-inner">
     <div class="hof-title">HALL OF FAME</div>
@@ -107,7 +101,7 @@
 <script>
 (() => {
   // ------- Config -------
-  const W=1140, H=708, MAP_MARGIN=12;
+  const W=1260, H=780, MAP_MARGIN=12;
   const LEVEL_KILLS=30;
   const MEDKIT_EVERY=25;
   const MUSIC_MAIN_URL="https://raw.githubusercontent.com/esteves7771/MataTudo/main/retro-synthwave-gaming-music-270173.mp3";
@@ -115,10 +109,10 @@
 
   // Balance tweaks
   const BOT_BULLET_DMG=8.5, BOT_TOUCH_DMG=8.5;
-  const BOSS_HP=1725;           // +50% over 1150
+  const BOSS_HP=1725;           // +50% from 13.2 base
   const BOSS_R=30;
-  const MAX_BOTS_BASE=14;       // cap scales gently with level
-  const MAX_BOTS_PER_LEVEL=1;   // additional per level
+  const MAX_BOTS_BASE=14;
+  const MAX_BOTS_PER_LEVEL=1;
   const MAX_BOTS_HARD_CAP=26;
 
   // ------- DOM -------
@@ -169,49 +163,54 @@
     bullets:[], bots:[], particles:[], medkits:[], explosions:[], hazards:[],
     groundPattern:null, spawnTimer:0,
     firstWaveRemaining:4, firstWaveInterval:0.4, firstWaveTimer:0.4,
-    obstacles:[ {x:360,y:230,w:120,h:110},{x:780,y:460,w:160,h:80},{x:560,y:120,w:90,h:90},{x:170,y:510,w:170,h:44}, ],
+    // Default starting map (becomes "first map")
+    obstacles:[ {x:420,y:280,w:140,h:120},{x:870,y:520,w:180,h:88},{x:650,y:150,w:100,h:96},{x:220,y:560,w:190,h:48} ],
+    initialObstacles:null, // set on first start and used on restart
     obstacleAlpha:1, obstaclePhase:'stable', obstacleFadeT:0,
     shakeT:0, shakeMag:0,
     banner:null,
-    spawnEase:1.0, spawnEaseT:0, // decays after boss to slow spawns
+    spawnEase:1.0, spawnEaseT:0,
     power:{kind:null,t:0},
     todayScores:[]
   };
   try{ const saved=localStorage.getItem('matatudo_best'); if(saved) s.bestScore=parseInt(saved,10)||0; }catch{}
 
   // Ground pattern
-  (function(){ const pc=document.createElement('canvas'); pc.width=64; pc.height=64; const pg=pc.getContext('2d'); pg.fillStyle='#27303a'; pg.fillRect(0,0,64,64);
-    for(let i=0;i<140;i++){ pg.fillStyle=`rgba(255,255,255,${0.06+Math.random()*0.06})`; pg.fillRect(Math.random()*64,Math.random()*64,1,1); }
+  ;(function(){ const pc=document.createElement('canvas'); pc.width=64; pc.height=64; const pg=pc.getContext('2d'); pg.fillStyle='#27303a'; pg.fillRect(0,0,64,64);
+    for(let i=0;i<160;i++){ pg.fillStyle=`rgba(255,255,255,${0.06+Math.random()*0.06})`; pg.fillRect(Math.random()*64,Math.random()*64,1,1); }
     pg.strokeStyle='rgba(0,0,0,0.12)'; for(let x=0;x<=64;x+=16){ pg.beginPath(); pg.moveTo(x,0); pg.lineTo(x,64); pg.stroke(); }
     for(let y=0;y<=64;y+=16){ pg.beginPath(); pg.moveTo(0,y); pg.lineTo(64,y); pg.stroke(); }
     s.groundPattern=ctx.createPattern(pc,'repeat');
   })();
 
-  // ------- Map gen (with safety) -------
-  const MIN_GAP=28, MAX_OBS_W=240, MAX_OBS_H=200;
+  // ------- Map gen (safety: never overlap player; cancel if bad) -------
+  const MIN_GAP=30, MAX_OBS_W=260, MAX_OBS_H=220;
   function insetToPlayArea(x,y,w,h){ const left=MAP_MARGIN+MIN_GAP, top=MAP_MARGIN+MIN_GAP, right=W-MAP_MARGIN-MIN_GAP, bottom=H-MAP_MARGIN-MIN_GAP; w=Math.min(w,right-left); h=Math.min(h,bottom-top); x=clamp(x,left,right-w); y=clamp(y,top,bottom-h); return {x,y,w,h}; }
   const rectCircle=(cx,cy,r,o)=>rectCircleOverlap(cx,cy,r,o);
-  const entityBlockedBy=(x,y,r,obs)=>obs.some(o=>rectCircle(x,y,r,o));
+  function entityBlockedBy(x,y,r,obs){ return obs.some(o=>rectCircle(x,y,r,o)); }
+
   function generateCandidateObstacles(currentEntities){
     const obstacles=[]; const add=(x,y,w,h)=>{ w=Math.min(w,MAX_OBS_W); h=Math.min(h,MAX_OBS_H); const r=insetToPlayArea(x,y,w,h);
       const infl={x:r.x-MIN_GAP/2,y:r.y-MIN_GAP/2,w:r.w+MIN_GAP,h:r.h+MIN_GAP};
       if(rectOverAny(infl,obstacles.map(o=>({x:o.x-MIN_GAP/2,y:o.y-MIN_GAP/2,w:o.w+MIN_GAP,h:o.h+MIN_GAP})))) return;
-      const wouldCover=currentEntities.some(ent=>rectCircle(ent.x,ent.y,ent.r+6,r)); if(wouldCover) return;
+      const wouldCover=currentEntities.some(ent=>rectCircle(ent.x,ent.y,ent.r+14,r)); if(wouldCover) return; // strong no-overlap buffer
       obstacles.push(r);
     };
     const pat=2+Math.floor(Math.random()*2);
     for(let k=0;k<pat;k++){
       const p=Math.floor(Math.random()*3);
-      if(p===0){ const cx=MAP_MARGIN+160+Math.random()*(W-2*(MAP_MARGIN+160)); const cy=MAP_MARGIN+120+Math.random()*(H-2*(MAP_MARGIN+120)); const cw=80+Math.random()*130, ch=60+Math.random()*110; add(cx-cw/2,cy-ch/2,cw,ch);
-        const n=3+Math.floor(Math.random()*4); for(let i=0;i<n;i++){ const w=40+Math.random()*90,h=30+Math.random()*80; add(cx+(Math.random()*280-140)-w/2, cy+(Math.random()*200-100)-h/2, w,h);} }
-      else if(p===1){ const bars=3+Math.floor(Math.random()*3); for(let i=0;i<bars;i++){ const horiz=Math.random()<0.5; if(horiz){ const w=180+Math.random()*240,h=22+Math.random()*36; add(MAP_MARGIN+Math.random()*(W-2*MAP_MARGIN-w), MAP_MARGIN+Math.random()*(H-2*MAP_MARGIN-h), w,h); } else { const w=22+Math.random()*36,h=180+Math.random()*240; add(MAP_MARGIN+Math.random()*(W-2*MAP_MARGIN-w), MAP_MARGIN+Math.random()*(H-2*MAP_MARGIN-h), w,h); } } }
-      else { const count=7+Math.floor(Math.random()*8); for(let i=0;i<count;i++){ const w=50+Math.random()*120,h=50+Math.random()*120; add(MAP_MARGIN+Math.random()*(W-2*MAP_MARGIN-w), MAP_MARGIN+Math.random()*(H-2*MAP_MARGIN-h), w,h); } }
+      if(p===0){ const cx=MAP_MARGIN+170+Math.random()*(W-2*(MAP_MARGIN+170)); const cy=MAP_MARGIN+130+Math.random()*(H-2*(MAP_MARGIN+130)); const cw=90+Math.random()*140, ch=70+Math.random()*120; add(cx-cw/2,cy-ch/2,cw,ch);
+        const n=3+Math.floor(Math.random()*4); for(let i=0;i<n;i++){ const w=50+Math.random()*90,h=30+Math.random()*80; add(cx+(Math.random()*300-150)-w/2, cy+(Math.random()*220-110)-h/2, w,h);} }
+      else if(p===1){ const bars=3+Math.floor(Math.random()*3); for(let i=0;i<bars;i++){ const horiz=Math.random()<0.5; if(horiz){ const w=200+Math.random()*260,h=22+Math.random()*36; add(MAP_MARGIN+Math.random()*(W-2*MAP_MARGIN-w), MAP_MARGIN+Math.random()*(H-2*MAP_MARGIN-h), w,h); } else { const w=22+Math.random()*36,h=200+Math.random()*260; add(MAP_MARGIN+Math.random()*(W-2*MAP_MARGIN-w), MAP_MARGIN+Math.random()*(H-2*MAP_MARGIN-h), w,h); } } }
+      else { const count=7+Math.floor(Math.random()*8); for(let i=0;i<count;i++){ const w=60+Math.random()*120,h=60+Math.random()*120; add(MAP_MARGIN+Math.random()*(W-2*MAP_MARGIN-w), MAP_MARGIN+Math.random()*(H-2*MAP_MARGIN-h), w,h); } }
     }
-    if(obstacles.length>18) obstacles.length=18;
+    if(obstacles.length>20) obstacles.length=20;
     return obstacles;
   }
+
+  // reachability grid
   function doorsReachable(obstacles, px, py){
-    const GRID_X=45, GRID_Y=27, grid=Array.from({length:GRID_Y},()=>Array(GRID_X).fill(0));
+    const GRID_X=48, GRID_Y=30, grid=Array.from({length:GRID_Y},()=>Array(GRID_X).fill(0));
     const cellW=(W-2*MAP_MARGIN)/GRID_X, cellH=(H-2*MAP_MARGIN)/GRID_Y;
     for(let y=0;y<GRID_Y;y++){ for(let x=0;x<GRID_X;x++){ const cx=MAP_MARGIN+x*cellW+cellW/2, cy=MAP_MARGIN+y*cellH+cellH/2; if(obstacles.some(o=>rectCircle(cx,cy,12+MIN_GAP/2,o))) grid[y][x]=1; } }
     const gx=clamp(Math.floor((px-MAP_MARGIN)/cellW),0,GRID_X-1), gy=clamp(Math.floor((py-MAP_MARGIN)/cellH),0,GRID_Y-1);
@@ -221,26 +220,46 @@
     const doors=[{gx:Math.floor(GRID_X/2),gy:0},{gx:Math.floor(GRID_X/2),gy:GRID_Y-1},{gx:0,gy:Math.floor(GRID_Y/2)},{gx:GRID_X-1,gy:Math.floor(GRID_Y/2)}];
     return doors.every(d=>seen[d.gy][d.gx]===true);
   }
+
   function randomObstaclesNavigable(){
-    const ents=[{x:s.player.x,y:s.player.y,r:80}].concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r+20})));
-    for(let tries=0;tries<30;tries++){ const obs=generateCandidateObstacles(ents); if(doorsReachable(obs,s.player.x,s.player.y)) return obs; }
-    return s.obstacles;
+    const ents=[{x:s.player.x,y:s.player.y,r:80}].concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r+24})));
+    for(let tries=0;tries<40;tries++){
+      const obs=generateCandidateObstacles(ents);
+      // hard check: no obstacle overlaps player circle + margin
+      const coversPlayer = obs.some(o=>rectCircleOverlap(s.player.x,s.player.y,s.player.r+14,o));
+      if(coversPlayer) continue;
+      if(doorsReachable(obs,s.player.x,s.player.y)) return obs;
+    }
+    return null; // signal failure
   }
+
   function triggerObstacleSwap(){ s.obstaclePhase='fadeOut'; s.obstacleFadeT=0; }
   function updateObstacleFade(dt){
     if(s.obstaclePhase==='stable') return;
     const DUR=0.45; s.obstacleFadeT+=dt; const t=clamp(s.obstacleFadeT/DUR,0,1);
-    if(s.obstaclePhase==='fadeOut'){ s.obstacleAlpha=1-t; if(s.obstacleFadeT>=DUR){ s.obstacles=randomObstaclesNavigable(); s.obstaclePhase='fadeIn'; s.obstacleFadeT=0; } }
-    else { s.obstacleAlpha=t; if(s.obstacleFadeT>=DUR){ s.obstaclePhase='stable'; s.obstacleAlpha=1; } }
+    if(s.obstaclePhase==='fadeOut'){
+      s.obstacleAlpha=1-t;
+      if(s.obstacleFadeT>=DUR){
+        const newObs=randomObstaclesNavigable();
+        if(newObs){ s.obstacles=newObs; s.obstaclePhase='fadeIn'; s.obstacleFadeT=0; }
+        else { // cancel swap; keep current to avoid trapping
+          s.obstaclePhase='stable'; s.obstacleAlpha=1;
+        }
+      }
+    } else {
+      s.obstacleAlpha=t;
+      if(s.obstacleFadeT>=DUR){ s.obstaclePhase='stable'; s.obstacleAlpha=1; }
+    }
   }
 
-  // ------- Hazards (fiery look) -------
+  // ------- Hazards (fiery) -------
   function spawnHazards(n=2){ for(let i=0;i<n;i++){ const r=10,x=rand(MAP_MARGIN+50,W-MAP_MARGIN-50),y=rand(MAP_MARGIN+50,H-MAP_MARGIN-50); s.hazards.push({x,y,r,vx:rand(-120,120),vy:rand(-120,120),t:Math.random()*10}); } }
 
   // ------- Spawners / FX -------
   function spawnParticles(x,y,color,count,size=2){ for(let i=0;i<count;i++){ const a=Math.random()*Math.PI*2,v=40+Math.random()*80; s.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:0.4+Math.random()*0.4,color,size}); } }
   function spawnExplosion(x,y,scale=1,color='#ffcf6b'){ s.explosions.push({x,y,t:0,dur:0.35,r0:8*scale,r1:36*scale,color}); }
 
+  // Boss patterns
   function bossShootAimed(b){ const p=s.player; const a=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.1; const sp=480; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); }
   function bossShootBurst(b){ const N=12, base=Math.random()*Math.PI*2; for(let i=0;i<N;i++){ const a=base+i*(Math.PI*2/N); const sp=400; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); } }
   function bossShootSpiral(b){ b.spiralA=(b.spiralA||0)+0.38; const sp=420, a=b.spiralA; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); }
@@ -260,12 +279,11 @@
 
   function trySpawnMedkit(){
     if(s.score>0 && s.score%MEDKIT_EVERY===0 && s.lastMedkitAtScore!==s.score){
-      for(let i=0;i<120;i++){
+      for(let i=0;i<160;i++){
         const r=10,x=MAP_MARGIN+r+Math.random()*(W-2*(MAP_MARGIN+r)), y=MAP_MARGIN+r+Math.random()*(H-2*(MAP_MARGIN+r));
-        // extra clearance + not near player
-        const nearPlayer = Math.hypot(x-s.player.x,y-s.player.y) < 80;
+        const nearPlayer = Math.hypot(x-s.player.x,y-s.player.y) < 90;
         if(nearPlayer) continue;
-        if(entityBlockedBy(x,y,r+6,s.obstacles)) continue;
+        if(entityBlockedBy(x,y,r+8,s.obstacles)) continue;
         s.medkits.push({x,y,r,timeLeft:20,heal:30}); s.lastMedkitAtScore=s.score; break;
       }
     }
@@ -277,13 +295,23 @@
     if(next>s.level){ s.level=next; s.levelUpFlash=2; triggerObstacleSwap(); if(s.level%5===0) s.pendingBoss=true; if(s.level%3===0 && s.hazards.length<5) spawnHazards(1); }
   }
 
+  function captureInitialMapOnce(){
+    if(!s.initialObstacles){ s.initialObstacles = s.obstacles.map(o=>({...o})); }
+  }
+
+  function resetToInitialMap(){
+    if(s.initialObstacles){ s.obstacles = s.initialObstacles.map(o=>({...o})); s.obstaclePhase='stable'; s.obstacleAlpha=1; }
+  }
+
   function startGame(){
     ensureAC(); stopAllMusic(); startMainMusic();
+    captureInitialMapOnce();
+    resetToInitialMap(); // per your request: restart back to the 1st map
     s.player={ x:W/2, y:H/2, r:12, speed:240, hp:100, fireCooldown:0, flashTimer:0, hitCooldown:0, knockbackX:0, knockbackY:0, kbT:0 };
-    s.bullets=[]; s.bots=[]; s.particles=[]; s.explosions=[]; // keep map
+    s.bullets=[]; s.bots=[]; s.particles=[]; s.explosions=[]; // map kept/reset above
     s.spawnTimer=0; s.score=0; s.mult=1; s.multT=0; s.lastEliteAtScore=0; s.lastMedkitAtScore=0;
     s.firstWaveRemaining=4; s.firstWaveTimer=s.firstWaveInterval;
-    s.level=1; s.levelUpFlash=0; s.obstaclePhase='stable'; s.obstacleAlpha=1; s.pendingBoss=false;
+    s.level=1; s.levelUpFlash=0; s.pendingBoss=false;
     s.shotsFired=0; s.shotsHit=0; s.power={kind:null,t:0}; s.spawnEase=1; s.spawnEaseT=0;
     s.mode='countdown'; s.countdown=2; hof.style.display='none';
   }
@@ -316,7 +344,7 @@
     const nonBossCount = s.bots.reduce((n,b)=>n+(!b.boss?1:0),0);
     const cap = clamp(MAX_BOTS_BASE + (s.level-1)*MAX_BOTS_PER_LEVEL, MAX_BOTS_BASE, MAX_BOTS_HARD_CAP);
 
-    s.spawnTimer-=dt*(s.spawnEase); // spawnEase slows down after boss
+    s.spawnTimer-=dt*(s.spawnEase);
     if(!bossAlive && !s.pendingBoss){
       if(nonBossCount < cap){
         const spawnBase=Math.max(0.6, 1.7 - Math.min(60, s.score/5)*0.01);
@@ -327,8 +355,9 @@
       if(s.score>0 && s.score%20===0 && s.lastEliteAtScore!==s.score){ if(nonBossCount<cap) spawnBot(true,false); s.lastEliteAtScore=s.score; }
     }
     if(s.pendingBoss && !bossAlive){
-      // clear all non-boss adds BEFORE boss appears; throttle spawns after
+      // SOLO boss: clear non-boss adds + WIPE enemy bullets
       s.bots = s.bots.filter(b=>b.boss);
+      s.bullets = s.bullets.filter(b=>b.owner==='player'); // fairness wipe
       startBossMusic(); audio.main?.pause();
       s.banner={text:'BOSS INCOMING!',t:0,dur:1.8};
       spawnBot(false,true);
@@ -407,8 +436,7 @@
             if(b.boss){
               s.medkits.push({x:b.x,y:b.y,r:12,timeLeft:30,heal:60});
               audio.boss?.pause(); startMainMusic();
-              // after boss: slow down spawns for a bit
-              s.spawnEase=0.6; s.spawnEaseT=8; // ease back to 1 over ~8s
+              s.spawnEase=0.6; s.spawnEaseT=8;
             } else { maybeDropPowerup(b.x,b.y); }
             SFX.death(Math.min(1,over/50)); maybeLevelUp();
           }
@@ -433,7 +461,6 @@
       return true;
     });
 
-    // particles & explosions
     if(s.spawnEaseT>0){ s.spawnEaseT-=dt; s.spawnEase = clamp(s.spawnEase + dt*0.05, 0.6, 1); }
     s.explosions.forEach(ex=>ex.t+=dt); s.explosions=s.explosions.filter(ex=>ex.t<ex.dur);
     s.particles.forEach(pt=>{ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.life-=dt; }); s.particles=s.particles.filter(pt=>pt.life>0);
@@ -469,7 +496,7 @@
 
     s.obstacles.forEach(o=>drawObstacle(o, s.obstacleAlpha));
 
-    // fiery hazards (animated)
+    // fiery hazards
     s.hazards.forEach(h=>{
       const t=h.t||0; const rr=h.r*(1+0.1*Math.sin(t*6)); const glow=0.45+0.35*(Math.sin(t*8)*0.5+0.5);
       const grad=ctx.createRadialGradient(h.x,h.y,rr*0.1,h.x,h.y,rr*1.4); grad.addColorStop(0,`rgba(255,180,80,${0.9*glow})`); grad.addColorStop(1,`rgba(230,60,30,${0.5*glow})`);
@@ -499,9 +526,8 @@
     if(s.levelUpFlash>0 && Math.floor(s.time*6)%2===0){ ctx.font='bold 28px ui-sans-serif,system-ui'; ctx.fillStyle='#fff'; ctx.fillText('Level Up!', W/2, MAP_MARGIN+34); }
     if(s.banner){ const alpha=1-Math.max(0,(s.banner.t/s.banner.dur)-0.6); ctx.globalAlpha=Math.max(0,alpha); ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 40px ui-sans-serif,system-ui'; ctx.fillText(s.banner.text, W/2, H/2); ctx.globalAlpha=1; }
     if(s.mode==='intro'){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; const t=s.time; const a=Math.min(1,t/0.5)*(t<1.2?1:Math.max(0,2-t)); ctx.globalAlpha=a; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-10); ctx.globalAlpha=Math.max(0,a*0.8); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('a tiny top-down shooter', W/2, H/2+22); ctx.globalAlpha=1; }
-    else if(s.mode==='menu'){ ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 36px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-60); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('Click or press any key to start', W/2, H/2+8); ctx.fillText(`Best: ${s.bestScore}`, W/2, H/2+36); }
+    else if(s.mode==='menu'){ ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 36px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-60); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('Press SPACE to start', W/2, H/2+8); ctx.fillText(`Best: ${s.bestScore}`, W/2, H/2+36); }
     else if(s.mode==='countdown'){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText(String(Math.max(1,Math.ceil(s.countdown))), W/2, H/2); }
-    // gameover: map stays visible, HOF modal shows
     ctx.textAlign='start';
 
     ctx.restore();
@@ -521,9 +547,16 @@
   // ------- Input / Loop -------
   function toLocal(e){ const r=cvs.getBoundingClientRect(); s.mouse.x=(e.clientX-r.left)*(W/r.width); s.mouse.y=(e.clientY-r.top)*(H/r.height); }
   window.addEventListener('mousemove',toLocal);
-  window.addEventListener('mousedown',e=>{ s.mouse.down=true; toLocal(e); if(s.mode==='intro'){ s.mode='menu'; stopAllMusic(); return; } if(s.mode==='menu'||s.mode==='gameover'){ startGame(); } });
+  window.addEventListener('mousedown',e=>{ s.mouse.down=true; toLocal(e); if(s.mode==='intro'){ s.mode='menu'; stopAllMusic(); return; } /* clicks no longer start */ if(s.mode==='gameover'){ startGame(); }});
   window.addEventListener('mouseup',()=>s.mouse.down=false);
-  window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if(!e.repeat) s.keys[k]=true; if(k==='m'){ toggleMute(); return; } if(k==='r'){ startGame(); return; } if(s.mode==='intro'){ s.mode='menu'; stopAllMusic(); return; } if(s.mode==='menu'){ startGame(); return; } if(s.mode==='gameover'){ startGame(); return; } });
+  window.addEventListener('keydown',e=>{
+    const k=e.key.toLowerCase(); if(!e.repeat) s.keys[k]=true;
+    if(k==='m'){ toggleMute(); return; }
+    if(k==='r'){ startGame(); return; }
+    if(s.mode==='intro'){ s.mode='menu'; stopAllMusic(); return; }
+    if(s.mode==='menu' && e.code==='Space'){ startGame(); return; } // ONLY SPACE starts
+    if(s.mode==='gameover' && e.code==='Space'){ startGame(); return; }
+  });
   window.addEventListener('keyup',e=>{ s.keys[e.key.toLowerCase()]=false; });
   btnPause.addEventListener('click',()=>{ s.running=!s.running; btnPause.textContent=s.running?'Pause':'Resume'; });
 
@@ -534,6 +567,7 @@
 </script>
 </body>
 </html>
+
 
 
 
