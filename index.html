@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 13</title>
+<title>MataTudo — Alpha 13.1</title>
 <style>
   :root { color-scheme: dark; }
   html,body { height:100%; margin:0; background:#0b1220; color:#e8f0ff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
   .shell { min-height:100%; display:flex; gap:22px; align-items:center; justify-content:center; padding:18px; }
   .sidebar {
     width:220px; min-height:708px; border-radius:14px;
-    background: #0c1528; border:1px solid rgba(255,255,255,.08);
+    background:#0c1528; border:1px solid rgba(255,255,255,.08);
     box-shadow:0 8px 28px rgba(0,0,0,.35); padding:14px 12px;
   }
   .sb-title { font-weight:800; letter-spacing:.6px; margin-bottom:12px; text-shadow:0 2px 0 rgba(0,0,0,.35); }
+  .build { font-size:11px; opacity:.75; }
   .sb-card { background:#0b1220; border:1px solid rgba(255,255,255,.07); border-radius:10px; padding:10px; margin-bottom:12px; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
   .hpbar { height:10px; background:#121a2f; border-radius:8px; border:1px solid rgba(255,255,255,.08); overflow:hidden; }
@@ -51,7 +52,7 @@
 <div class="shell">
   <!-- Retro sidebar HUD -->
   <aside class="sidebar mono" id="sidebar">
-    <div class="sb-title">MataTudo</div>
+    <div class="sb-title">MataTudo <span class="build">• A13.1</span></div>
     <div class="sb-card">
       <div class="row"><span>Score</span><span id="sbScore" class="hudnum">0</span></div>
       <div class="row"><span>Best</span><span id="sbBest" class="hudnum">0</span></div>
@@ -67,7 +68,7 @@
       <div>Tips</div>
       <ul style="margin:6px 0 0 16px; padding:0;">
         <li>WASD / Arrows move</li>
-        <li>Mouse aims, click shoots</li>
+        <li>Mouse aims · Click shoots</li>
         <li>M mute · R restart</li>
         <li>Level +1 every 30 kills</li>
         <li>Boss every 4 levels</li>
@@ -82,9 +83,9 @@
     </div>
   </aside>
 
-  <!-- Playfield + controls -->
+  <!-- Playfield -->
   <main>
-    <div class="title">MataTudo — Alpha 13</div>
+    <div class="title">MataTudo — Alpha 13.1</div>
     <canvas id="game" width="1140" height="708"></canvas>
     <div class="hint">Any Key/Click starts • Level every 30 kills • Boss every 4 levels • Yellow bots give 2 pts • Map persists on Game Over</div>
   </main>
@@ -125,7 +126,7 @@
   const BOT_BULLET_DMG = 8.5, BOT_TOUCH_DMG = 8.5;
 
   // Boss buff + phase scaling
-  const BOSS_HP = 1150; // was ~770
+  const BOSS_HP = 1150; // ~50% higher than old build
   const BOSS_R = 30;
 
   // ---------- DOM ----------
@@ -214,7 +215,7 @@
     s.groundPattern=ctx.createPattern(pc,'repeat');
   })();
 
-  // ---------- Map gen (same logic as previous alpha; omitted here for brevity of comments) ----------
+  // ---------- Map gen ----------
   const MIN_GAP=28, MAX_OBS_W=240, MAX_OBS_H=200;
   function insetToPlayArea(x,y,w,h){ const left=MAP_MARGIN+MIN_GAP, top=MAP_MARGIN+MIN_GAP, right=W-MAP_MARGIN-MIN_GAP, bottom=H-MAP_MARGIN-MIN_GAP; w=Math.min(w,right-left); h=Math.min(h,bottom-top); x=clamp(x,left,right-w); y=clamp(y,top,bottom-h); return {x,y,w,h}; }
   const rectCircle=(cx,cy,r,o)=>rectCircleOverlap(cx,cy,r,o);
@@ -244,7 +245,7 @@
     if(grid[gy][gx]===1) return false;
     const seen=Array.from({length:GRID_CELLS_Y},()=>Array(GRID_CELLS_X).fill(false)); const q=[[gx,gy]], dirs=[[1,0],[-1,0],[0,1],[0,-1]]; seen[gy][gx]=true;
     while(q.length){ const [x,y]=q.shift(); for(const [dx,dy] of dirs){ const nx=x+dx, ny=y+dy; if(nx<0||ny<0||nx>=GRID_CELLS_X||ny>=GRID_CELLS_Y) continue; if(seen[ny][nx]||grid[ny][nx]===1) continue; seen[ny][nx]=true; q.push([nx,ny]); } }
-    const doors=[{gx:Math.floor(GRID_CELLS_X/2),gy:0},{gx:Math.floor(GRID_CELLS_X/2),gy:GRID_CELLS_Y-1},{gx:0,gy:Math.floor(GRID_CELLS_Y/2)},{gx:GRID_CELLS_X-1,gy:Math.floor(GRID_CELLS_Y/2)}];
+    const doors=[{gx:Math.floor(GRID_CELLS_X/2),gy:0},{gx:Math.floor(GRID_CELLS_X/2),gy:GRID_CELLS_Y-1},{gx:0,gy:Math.floor(GRID_CELLS_X/2)},{gx:GRID_CELLS_X-1,gy:Math.floor(GRID_CELLS_X/2)}];
     return doors.every(d=>seen[d.gy][d.gx]===true);
   }
   function triggerObstacleSwap(){ s.obstaclePhase='fadeOut'; s.obstacleFadeT=0; }
@@ -266,8 +267,6 @@
   function bossShootAimed(b){ const p=s.player; const a=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.1; const sp=480; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); }
   function bossShootBurst(b){ const N=12, base=Math.random()*Math.PI*2; for(let i=0;i<N;i++){ const a=base+i*(Math.PI*2/N); const sp=400; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); } }
   function bossShootSpiral(b){ b.spiralA=(b.spiralA||0)+0.38; const sp=420, a=b.spiralA; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); }
-
-  function vectorToPlayer(b){ const dx=s.player.x-b.x, dy=s.player.y-b.y; const d=Math.hypot(dx,dy)||1; return {dx,dy,d,ax:dx/d,ay:dy/d}; }
 
   function spawnBot(elite=false,boss=false){
     let tries=0,x=0,y=0,r=boss?BOSS_R:(elite?16:12);
@@ -311,19 +310,20 @@
     hof.style.display='none';
   }
 
-  // ---------- Update ----------
+  // ---------- UI ----------
   function updateSidebar(){
     sbScore.textContent = s.score;
     sbBest.textContent  = s.bestScore;
     sbLevel.textContent = s.level;
     sbMult.textContent  = 'x'+s.mult;
-    sbPower.textContent = s.power.kind? `${s.power.kind} ${Math.ceil(s.power.t)}s` : '-';
+    sbPower.textContent = s.power.kind? `${s.power.t>0?Math.ceil(s.power.t):0}s ${s.power.kind}` : '-';
     const hp = Math.max(0, Math.round(s.player.hp));
     sbHPNum.textContent = hp;
     sbHPFill.style.width = (hp)+'%';
     sbHPFill.style.background = hp<25 ? 'linear-gradient(90deg,#ff6b6b,#b91c1c)' : 'linear-gradient(90deg,#2af598,#08a88a)';
   }
 
+  // ---------- Update ----------
   function update(dt){
     s.dt=dt; s.time+=dt; updateObstacleFade(dt); updateSidebar();
     if(s.banner){ s.banner.t+=dt; if(s.banner.t>=s.banner.dur) s.banner=null; }
@@ -338,7 +338,7 @@
     // hazards
     s.hazards.forEach(h=>{ h.x+=h.vx*dt; h.y+=h.vy*dt; if(h.x<MAP_MARGIN+h.r||h.x>W-MAP_MARGIN-h.r) h.vx*=-1; if(h.y<MAP_MARGIN+h.r||h.y>H-MAP_MARGIN-h.r) h.vy*=-1; });
 
-    // spawns
+    // spawns (no adds during boss)
     const bossAlive = s.bots.some(b=>b.boss);
     s.spawnTimer-=dt;
     if(!bossAlive && !s.pendingBoss){
@@ -375,10 +375,10 @@
     // bot AI + fire
     s.bots.forEach(b=>{
       b.jitter=(b.jitter||0)+dt*2.2;
-      const v={ dx:s.player.x-b.x, dy:s.player.y-b.y }; const d=Math.hypot(v.dx,v.dy)||1; let ax=v.dx/d, ay=v.dy/d;
+      const vx=s.player.x-b.x, vy=s.player.y-b.y; const d=Math.hypot(vx,vy)||1; let ax=vx/d, ay=vy/d;
       if(!b.boss){
-        if(b.ai==='strafer'){ const side=Math.sin(s.time*2+b.jitter)>0?1:-1; const a=Math.atan2(v.dy,v.dx)+side*Math.PI/2; ax=Math.cos(a); ay=Math.sin(a); }
-        else if(b.ai==='circler'){ const a=Math.atan2(v.dy,v.dx)+Math.sin(b.jitter)*0.5; ax=Math.cos(a); ay=Math.sin(a); }
+        if(b.ai==='strafer'){ const side=Math.sin(s.time*2+b.jitter)>0?1:-1; const a=Math.atan2(vy,vx)+side*Math.PI/2; ax=Math.cos(a); ay=Math.sin(a); }
+        else if(b.ai==='circler'){ const a=Math.atan2(vy,vx)+Math.sin(b.jitter)*0.5; ax=Math.cos(a); ay=Math.sin(a); }
         else if(b.ai==='sniper'){ if(d<260){ ax=-ax; ay=-ay; } else { ax*=0.3; ay*=0.3; } }
       }
       const totalDx=ax*b.speed*dt,totalDy=ay*b.speed*dt, steps=Math.max(1,Math.ceil(Math.hypot(totalDx,totalDy)/Math.max(1,b.r*0.6)));
@@ -387,15 +387,14 @@
 
       b.fireCooldown-=dt;
       if(b.boss){
-        // tougher phases if low HP
         const hpFrac = Math.max(0,b.hp)/(b.maxHP||BOSS_HP);
-        const rateMul = hpFrac < 0.5 ? 0.75 : 1; // faster fire when low
+        const rateMul = hpFrac < 0.5 ? 0.75 : 1;
         b.phaseT += dt;
-        if(b.phase==='aim'){ if(b.fireCooldown<=0){ bossShootAimed(b); b.fireCooldown=0.35*rateMul; } if(b.phaseT>3) { b.phase='burst'; b.phaseT=0; } }
+        if(b.phase==='aim'){ if(b.fireCooldown<=0){ bossShootAimed(b); b.fireCooldown=0.35*rateMul; } if(b.phaseT>3){ b.phase='burst'; b.phaseT=0; } }
         else if(b.phase==='burst'){ if(b.fireCooldown<=0){ bossShootBurst(b); b.fireCooldown=1.0*rateMul; } if(b.phaseT>3.2){ b.phase='spiral'; b.phaseT=0; } }
         else { if(b.fireCooldown<=0){ bossShootSpiral(b); b.fireCooldown=0.06*rateMul; } if(b.phaseT>3){ b.phase='aim'; b.phaseT=0; } }
       } else if(b.fireCooldown<=0){
-        const aa=Math.atan2(v.dy,v.dx)+(Math.random()-0.5)*0.18; const sp=360;
+        const aa=Math.atan2(vy,vx)+(Math.random()-0.5)*0.18; const sp=360;
         s.bullets.push({x:b.x,y:b.y,vx:Math.cos(aa)*sp,vy:Math.sin(aa)*sp,r:3,owner:'bot',life:2}); b.fireCooldown=b.shootEvery*Math.max(0.55,1-0.05*(s.level-1));
       }
     });
@@ -407,9 +406,10 @@
     // hazards damage
     s.hazards.forEach(h=>{ if(Math.hypot(h.x-s.player.x,h.y-s.player.y)<h.r+s.player.r){ if(s.player.hitCooldown<=0){ s.player.hp-=10; s.player.hitCooldown=0.35; SFX.hit(); addShake(s,6,0.25); } } });
 
-    // hits
+    // hits (bot bullets -> player)
     s.bullets.forEach(b=>{ if(b.owner==='bot' && Math.hypot(b.x-p.x,b.y-p.y)<b.r+p.r){ if(p.hitCooldown<=0){ p.hp-=BOT_BULLET_DMG; p.hitCooldown=0.35; spawnParticles(p.x,p.y,'#f00',8,2.2); SFX.hit(); addShake(s,6,0.25); p.knockbackX=(p.x-b.x)/Math.hypot(p.x-b.x,p.y-b.y); p.knockbackY=(p.y-b.y)/Math.hypot(p.x-b.x,p.y-b.y); p.kbT=0.2; s.mult=1; s.multT=0; } b.life=0; } });
 
+    // hits (player bullets -> bots)
     s.bots = s.bots.filter(b=>{
       let alive=true;
       s.bullets.forEach(pr=>{
@@ -506,7 +506,7 @@
     if(s.mode==='intro'){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; const t=s.time; const a=Math.min(1,t/0.5)*(t<1.2?1:Math.max(0,2-t)); ctx.globalAlpha=a; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-10); ctx.globalAlpha=Math.max(0,a*0.8); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('a tiny top-down shooter', W/2, H/2+22); ctx.globalAlpha=1; }
     else if(s.mode==='menu'){ ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 36px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-60); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('Click or press any key to start', W/2, H/2+8); ctx.fillText(`Best: ${s.bestScore}`, W/2, H/2+36); }
     else if(s.mode==='countdown'){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText(String(Math.max(1,Math.ceil(s.countdown))), W/2, H/2); }
-    else if(s.mode==='gameover'){ /* overlay handled by HOF modal; keep map visible */ }
+    else if(s.mode==='gameover'){ /* HOF modal shows; map remains */ }
     ctx.textAlign='start';
 
     ctx.restore();
@@ -514,20 +514,16 @@
 
   // ---------- Hall of Fame ----------
   function updateHallOfFame(){
-    // session scores
     s.todayScores.push(s.score);
     s.todayScores.sort((a,b)=>b-a);
     if(s.todayScores.length>8) s.todayScores.length=8;
 
-    // all-time
-    let all=[];
-    try { const raw = localStorage.getItem('matatudo_alltime'); if(raw) all = JSON.parse(raw)||[]; } catch {}
+    let all=[]; try { const raw = localStorage.getItem('matatudo_alltime'); if(raw) all = JSON.parse(raw)||[]; } catch {}
     all.push(s.score); all.sort((a,b)=>b-a); if(all.length>10) all.length=10;
     try { localStorage.setItem('matatudo_alltime', JSON.stringify(all)); } catch {}
 
     const acc = s.shotsFired>0 ? Math.round(100*s.shotsHit/s.shotsFired) : 0;
     hofSummary.textContent = `Score ${s.score} · Level ${s.level} · Accuracy ${acc}%`;
-
     boardToday.innerHTML = s.todayScores.map((sc,i)=>`<div class="line"><span>${String(i+1).padStart(2,'0')}</span><span>${String(sc).padStart(6,' ')}</span></div>`).join('');
     boardAll.innerHTML   = all.map((sc,i)=>`<div class="line"><span>${String(i+1).padStart(2,'0')}</span><span>${String(sc).padStart(6,' ')}</span></div>`).join('');
   }
@@ -557,5 +553,6 @@
 </script>
 </body>
 </html>
+
 
 
