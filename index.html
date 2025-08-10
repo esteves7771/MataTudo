@@ -166,21 +166,13 @@
   const BOSS_HP_BASE=5175, BOSS_HP_STEP=1.20, BOSS_R=30, BOSS_RATE_P2=0.65, BOSS_SPEED_P2=1.15;
   const MAX_BOTS_BASE=14, MAX_BOTS_PER_LEVEL=1, MAX_BOTS_HARD_CAP=26;
 
-  // ------- Biomes -------
-const BIOMES = [
-  { name: 'Factory', tint: 'rgba(80,80,80,0.18)', obsColor: '#555', amb: 'factory_amb.mp3' },
-  { name: 'Jungle', tint: 'rgba(40,60,40,0.18)', obsColor: '#3e4a3e', amb: 'jungle_amb.mp3' },
-  { name: 'Neon City', tint: 'rgba(60,20,60,0.18)', obsColor: '#402a40', amb: 'neon_amb.mp3' }
-];
-let currentBiome = 0;
-
-  // Rotate biome instantly after boss death
-currentBiome = (currentBiome + 1) % BIOMES.length;
-s.banner = { text: `${BIOMES[currentBiome].name}`, t: 0, dur: 1.5 };
-
-  // Apply biome tint overlay
-ctx.fillStyle = BIOMES[currentBiome].tint;
-ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
+  // ------- Biomes (visual only) -------
+  const BIOMES = [
+    { name: 'Factory', tint: 'rgba(80,80,80,0.18)', obsColor: '#555' },
+    { name: 'Jungle',  tint: 'rgba(40,60,40,0.18)', obsColor: '#3e4a3e' },
+    { name: 'Neon City', tint: 'rgba(60,20,60,0.18)', obsColor: '#402a40' }
+  ];
+  let currentBiome = 0;
 
   // ------- DOM -------
   const cvs=document.getElementById('game'), ctx=cvs.getContext('2d',{alpha:false});
@@ -588,12 +580,19 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
             s.dailyDone = Math.min(s.dailyGoal, s.dailyDone + 1);
             s.killsSinceShield++; if(s.killsSinceShield>=SHIELD_KILLS && s.shields<SHIELD_MAX){ s.killsSinceShield=0; s.shields++; s.shieldHP=s.shields*SHIELD_HP; spawnParticles(s.player.x,s.player.y,'#7cc0ff',28,3); }
             if(b.boss){
+              // boss death rewards
               spawnShardFromBoss(b); spawnShardFromBoss(b);
               s.medkits.push({x:b.x,y:b.y,r:12,timeLeft:30,heal:60});
               if(s.shields<SHIELD_MAX){ s.shields++; s.shieldHP=s.shields*SHIELD_HP; }
               audio.boss?.pause(); startMainMusic();
               s.spawnEase=0.4; s.spawnEaseT=12;
-            } else { maybeDropPowerup(b.x,b.y); }
+
+              // rotate biome safely here
+              currentBiome = (currentBiome + 1) % BIOMES.length;
+              s.banner = { text: `${BIOMES[currentBiome].name}`, t: 0, dur: 1.5 };
+            } else {
+              maybeDropPowerup(b.x,b.y);
+            }
             SFX.death(Math.min(1,over/50)); maybeLevelUp();
           }
         }
@@ -621,8 +620,8 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
 
     if(s.player.hp<=0){
       s.mode='gameover';
-      stopAllMusic();       // stop main/boss
-      startDefeatMusic();   // play defeat/HOF music
+      stopAllMusic();
+      startDefeatMusic();
       try{ if(s.score>(s.bestScore||0)){ s.bestScore=s.score; localStorage.setItem('matatudo_best',String(s.bestScore)); } }catch{}
       updateHallOfFame(); hof.style.display='flex';
       setTimeout(()=>{ try { nameInput.focus(); nameInput.select(); } catch {} }, 0);
@@ -661,8 +660,16 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
     }
     ctx.restore();
   }
-  function drawObstacle(o,a=1){ ctx.save(); ctx.globalAlpha=a; ctx.fillStyle= BIOMES[currentBiome].obsColor; ctx.fillRect(o.x,o.y,o.w,o.h); ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.strokeRect(o.x+0.5,o.y+0.5,o.w-1,o.h-1); ctx.fillStyle='rgba(255,255,255,0.08)'; for(let i=0;i<30;i++){ const rx=o.x+4+Math.random()*(o.w-8),ry=o.y+4+Math.random()*(o.h-8); ctx.fillRect(rx,ry,1,1);} ctx.restore(); }
-  function drawExplosions(){ s.explosions.forEach(ex=>{ const t=ex.t/ex.dur; const r=ex.r0+(ex.r1-ex.r0)*t, a=1-t; ctx.save(); ctx.globalAlpha=a*0.9; ctx.strokeStyle=ex.color; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(ex.x,ex.y,r,0,Math.PI*2); ctx.stroke(); ctx.globalAlpha=a*0.35; ctx.fillStyle=ex.color; ctx.beginPath(); ctx.arc(ex.x,ex.y,r*0.6,0,Math.PI*2); ctx.fill(); ctx.restore(); }); }
+  function drawObstacle(o,a=1){
+    ctx.save();
+    ctx.globalAlpha=a;
+    ctx.fillStyle= BIOMES[currentBiome].obsColor;
+    ctx.fillRect(o.x,o.y,o.w,o.h);
+    ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.strokeRect(o.x+0.5,o.y+0.5,o.w-1,o.h-1);
+    ctx.fillStyle='rgba(255,255,255,0.08)';
+    for(let i=0;i<30;i++){ const rx=o.x+4+Math.random()*(o.w-8),ry=o.y+4+Math.random()*(o.h-8); ctx.fillRect(rx,ry,1,1);}
+    ctx.restore();
+  }
 
   function draw(){
     // Clear/paint background with identity transform (fixes edge artifacts)
@@ -674,9 +681,15 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
     ctx.save();
     if((s.shakeT||0)>0){ s.shakeT-=s.dt; const m=(s.shakeMag||0)*Math.max(0,s.shakeT); ctx.translate((Math.random()*2-1)*m,(Math.random()*2-1)*m); }
 
-    const low=s.player.hp<=25&&s.mode==='playing'; if(low){ const pulse=(Math.sin(s.time*10)+1)/2; ctx.strokeStyle=`rgba(255,70,70,${0.2+0.6*pulse})`; ctx.lineWidth=4; ctx.strokeRect(MAP_MARGIN-2,MAP_MARGIN-2,W-2*MAP_MARGIN+4,H-2*MAP_MARGIN+4); }
+    const low=s.player.hp<=25&&s.mode==='playing';
+    if(low){ const pulse=(Math.sin(s.time*10)+1)/2; ctx.strokeStyle=`rgba(255,70,70,${0.2+0.6*pulse})`; ctx.lineWidth=4; ctx.strokeRect(MAP_MARGIN-2,MAP_MARGIN-2,W-2*MAP_MARGIN+4,H-2*MAP_MARGIN+4); }
     ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1; ctx.strokeRect(MAP_MARGIN,MAP_MARGIN,W-2*MAP_MARGIN,H-2*MAP_MARGIN);
 
+    // biome tint overlay (over ground, under objects)
+    ctx.fillStyle = BIOMES[currentBiome].tint;
+    ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
+
+    // obstacles
     s.obstacles.forEach(o=>drawObstacle(o, s.obstacleAlpha));
 
     // pickups
@@ -685,8 +698,10 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
       else { ctx.fillStyle='#e5f7ff'; ctx.fillRect(m.x-r,m.y-r,r*2,r*2); ctx.strokeStyle='#94a3b8'; ctx.strokeRect(m.x-r+0.5,m.y-r+0.5,r*2-1,r*2-1); ctx.fillStyle='#e11d48'; ctx.fillRect(m.x-r*0.25,m.y-r*0.8,r*0.5,r*1.6); ctx.fillRect(m.x-r*0.8,m.y-r*0.25,r*1.6,r*0.5); }
     });
 
+    // player
     const p=s.player; const ang=Math.atan2(s.mouse.y-p.y,s.mouse.x-p.x); drawSoldier(p.x,p.y,ang,p.r,p.flashTimer,low);
 
+    // bots
     s.bots.forEach(b=>{ ctx.save(); if(b.outline){ ctx.strokeStyle=b.outline; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2); ctx.stroke(); }
       if(b.boss){
         const r=b.r; const grad=ctx.createRadialGradient(b.x-r*0.2,b.y-r*0.2,r*0.2,b.x,b.y,r*1.2); grad.addColorStop(0,'#ff6b6b'); grad.addColorStop(1,'#b81616'); ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(b.x,b.y,r,0,Math.PI*2); ctx.fill(); ctx.save(); ctx.clip(); ctx.globalAlpha=0.18; ctx.strokeStyle='#ffffff'; ctx.lineWidth=2; for(let a=-r;a<=r;a+=6){ ctx.beginPath(); ctx.moveTo(b.x-r,b.y+a); ctx.lineTo(b.x+r,b.y+a+8); ctx.stroke(); } ctx.restore();
@@ -694,6 +709,7 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
       ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=2; ctx.beginPath(); const frac=Math.max(0,b.hp)/(b.maxHP||40); ctx.arc(b.x,b.y,b.r+4,-Math.PI/2,-Math.PI/2+frac*Math.PI*2); ctx.stroke(); ctx.restore();
     });
 
+    // bullets / particles / explosions
     s.bullets.forEach(b=>{ ctx.fillStyle=b.owner==='player'?'#e6ff71':(b.boss?'#ffb1b1':'#ffa8a3'); ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); });
     s.particles.forEach(pt=>{ ctx.fillStyle=pt.color; ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill(); });
     s.explosions.forEach(ex=>{ const t=ex.t/ex.dur; const r=ex.r0+(ex.r1-ex.r0)*t, a=1-t; ctx.save(); ctx.globalAlpha=a*0.9; ctx.strokeStyle=ex.color; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(ex.x,ex.y,r,0,Math.PI*2); ctx.stroke(); ctx.globalAlpha=a*0.35; ctx.fillStyle=ex.color; ctx.beginPath(); ctx.arc(ex.x,ex.y,r*0.6,0,Math.PI*2); ctx.fill(); ctx.restore(); });
@@ -738,7 +754,7 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
       const a2 = [...all, entry].sort((a,b)=>b.score-a.score).slice(0,10);
       saveBoards(a2, t2);
       renderBoards(a2, t2);
-      renderRightTop10();  // keep right panel in sync
+      renderRightTop10();
       saveBtn.disabled = true;
       saveNote.textContent = "Saved locally ✔";
     };
@@ -760,7 +776,7 @@ ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
   });
   window.addEventListener('mouseup',()=>s.mouse.down=false);
 
-  // 👇 NEW: keep mouse position live while aiming
+  // keep mouse position live while aiming
   window.addEventListener('mousemove', toLocal);
 
   window.addEventListener('keydown', (e) => {
