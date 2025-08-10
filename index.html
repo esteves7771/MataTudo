@@ -166,6 +166,22 @@
   const BOSS_HP_BASE=5175, BOSS_HP_STEP=1.20, BOSS_R=30, BOSS_RATE_P2=0.65, BOSS_SPEED_P2=1.15;
   const MAX_BOTS_BASE=14, MAX_BOTS_PER_LEVEL=1, MAX_BOTS_HARD_CAP=26;
 
+  // ------- Biomes -------
+const BIOMES = [
+  { name: 'Factory', tint: 'rgba(80,80,80,0.18)', obsColor: '#555', amb: 'factory_amb.mp3' },
+  { name: 'Jungle', tint: 'rgba(40,60,40,0.18)', obsColor: '#3e4a3e', amb: 'jungle_amb.mp3' },
+  { name: 'Neon City', tint: 'rgba(60,20,60,0.18)', obsColor: '#402a40', amb: 'neon_amb.mp3' }
+];
+let currentBiome = 0;
+
+  // Rotate biome instantly after boss death
+currentBiome = (currentBiome + 1) % BIOMES.length;
+s.banner = { text: `${BIOMES[currentBiome].name}`, t: 0, dur: 1.5 };
+
+  // Apply biome tint overlay
+ctx.fillStyle = BIOMES[currentBiome].tint;
+ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
+
   // ------- DOM -------
   const cvs=document.getElementById('game'), ctx=cvs.getContext('2d',{alpha:false});
   const sbScore=document.getElementById('sbScore'), sbBest=document.getElementById('sbBest'), sbLevel=document.getElementById('sbLevel');
