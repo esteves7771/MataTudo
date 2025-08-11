@@ -56,9 +56,7 @@
   .lb10 .line { display:flex; justify-content:space-between; padding:2px 0; }
   .lb10 .name { opacity:.9; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px; }
   .lb10 .score { font-weight:700; }
-  /* keep scale centered when shrinking */
-  @media (max-width: 1580px){ .shell{ transform:scale(.92); transform-origin:center center; } }
-
+  
   /* HOF close button */
    .hof-inner { position: relative; }
    .hof-x {
@@ -69,6 +67,17 @@
    font-size:20px; text-align:center;
   }
  .hof-x:hover { background:#122247; }
+
+  /* Poster-fit scaling */
+.shell{ transform-origin:center center; will-change: transform; }
+
+/* iOS/Android notch safety (optional but recommended) */
+body{
+  padding: env(safe-area-inset-top,0px)
+           env(safe-area-inset-right,0px)
+           env(safe-area-inset-bottom,0px)
+           env(safe-area-inset-left,0px);
+}
 
 </style>
 </head>
@@ -846,6 +855,28 @@ s.bots.forEach(b=>{
   startGame();
   };
   }
+
+  // --- Poster-fit: keep the entire app always visible by scaling the whole shell ---
+const STAGE_W = 220 + 22 + 1260 + 22 + 220; // left SB + gaps + canvas + gaps + right SB = 1744
+const STAGE_H = 780 + 18 + 18;               // canvas height + shell vertical padding = 816
+const shellEl = document.querySelector('.shell');
+
+const HEADROOM = 0.85; // tweak 0.90–0.98 to taste
+
+function fitStage(){
+  const vw = (window.visualViewport?.width ?? window.innerWidth);
+  const vh = (window.visualViewport?.height ?? window.innerHeight);
+  const sRaw = Math.min(vw / STAGE_W, vh / STAGE_H);
+  const s = sRaw * HEADROOM; // slightly less than the tight fit
+  shellEl.style.transform = `scale(${s})`;
+}
+
+
+// keep it fitted on resizes / orientation changes / mobile chrome UI changes
+window.addEventListener('resize', fitStage, { passive:true });
+window.visualViewport?.addEventListener('resize', fitStage);
+fitStage();
+
 
   /* ------- Input / Loop ------- */
   function toLocal(e){ const r=cvs.getBoundingClientRect(); s.mouse.x=(e.clientX-r.left)*(W/r.width); s.mouse.y=(e.clientY-r.top)*(H/r.height); }
