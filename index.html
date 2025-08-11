@@ -3,13 +3,15 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MataTudo — Alpha 14.2</title>
+<title>MataTudo — Alpha 14.3</title>
 <style>
   :root { color-scheme: dark; }
   html,body { height:100%; margin:0; background:#0b1220; color:#e8f0ff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-  .shell { min-height:100%; display:flex; gap:22px; align-items:center; justify-content:center; padding:18px; }
+  /* center whole app always */
+  .shell { min-height:100vh; display:flex; gap:22px; align-items:center; justify-content:center; padding:18px; }
+  main { display:flex; align-items:center; justify-content:center; }
   .sidebar {
-    width:220px; min-height:780px; border-radius:14px;
+    width:220px; min-height:753px; border-radius:14px;
     background:#0c1528; border:1px solid rgba(255,255,255,.08);
     box-shadow:0 8px 28px rgba(0,0,0,.35); padding:14px 12px;
   }
@@ -54,14 +56,27 @@
   .lb10 .line { display:flex; justify-content:space-between; padding:2px 0; }
   .lb10 .name { opacity:.9; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px; }
   .lb10 .score { font-weight:700; }
-  @media (max-width: 1580px){ .shell{ transform:scale(.92); transform-origin:top center;} }
+  /* keep scale centered when shrinking */
+  @media (max-width: 1580px){ .shell{ transform:scale(.92); transform-origin:center center; } }
+
+  /* HOF close button */
+   .hof-inner { position: relative; }
+   .hof-x {
+   position: absolute; top: 8px; right: 8px;
+   width: 32px; height: 32px; line-height: 30px;
+   border-radius: 8px; border:1px solid rgba(255,255,255,.18);
+   background:#0d1a33; color:#e8f0ff; cursor:pointer;
+   font-size:20px; text-align:center;
+  }
+ .hof-x:hover { background:#122247; }
+
 </style>
 </head>
 <body>
 <div class="shell">
   <!-- LEFT HUD -->
   <aside class="sidebar mono" id="leftHUD">
-    <div class="sb-title">MataTudo <span class="build">• A14.2</span></div>
+    <div class="sb-title">MataTudo <span class="build">• A14.3</span></div>
     <div class="sb-card">
       <div class="row"><span>Score</span><span id="sbScore" class="hudnum">0</span></div>
       <div class="row"><span>Best</span><span id="sbBest" class="hudnum">0</span></div>
@@ -79,8 +94,8 @@
       <ul style="margin:6px 0 0 16px; padding:0;">
         <li>WASD / Arrows move</li>
         <li>Mouse aims · Click shoots</li>
-        <li>M mute · R restart</li>
-        <li>SPACE starts</li>
+        <li>Use the buttons to Start/Restart</li>
+        <li>M mutes music</li>
         <li>Level +1 every 30 kills</li>
         <li>Boss at 5,15,25,40,55,75…</li>
       </ul>
@@ -91,6 +106,12 @@
     </div>
     <div class="sb-card mini">
       <button id="pause" class="btn" style="width:100%;">Pause</button>
+    </div>
+    <div class="sb-card mini">
+      <button id="Start" class="btn" style="width:100%;">Start</button>
+    </div>
+    <div class="sb-card mini">
+      <button id="Restart" class="btn" style="width:100%;">Restart</button>
     </div>
   </aside>
 
@@ -104,7 +125,7 @@
     <div class="sb-title">Global & Missions</div>
     <div class="sb-card">
       <div class="title2">Leaderboards</div>
-      <div class="row"><span>All‑Time (Local)</span><span id="globTop">—</span></div>
+      <div class="row"><span>All-Time (Local)</span><span id="globTop">—</span></div>
       <div class="row"><span>Your Best</span><span id="globYou">0</span></div>
       <div id="lbTop10" class="lb10 mono" style="margin-top:8px;"></div>
       <div class="mini ticker" id="lbNote">Add Firebase later for world leaderboard.</div>
@@ -123,9 +144,10 @@
   </aside>
 </div>
 
-<!-- Hall of Fame (with name input + Save) -->
+<!-- Hall of Fame -->
 <div class="hof" id="hof">
   <div class="hof-inner">
+    <button class="hof-x" id="hofClose" aria-label="Close">×</button>
     <div class="hof-title">HALL OF FAME</div>
     <div class="hof-sub mono" id="hofSummary">Score 0 · Level 1 · Accuracy 0%</div>
 
@@ -138,11 +160,10 @@
 
     <div class="cols" style="margin-top:12px;">
       <div class="board"><h4>TODAY'S GREATEST</h4><div id="boardToday"></div></div>
-      <div class="board"><h4>ALL‑TIME GREATEST</h4><div id="boardAll"></div></div>
+      <div class="board"><h4>ALL-TIME GREATEST</h4><div id="boardAll"></div></div>
     </div>
 
-    <div class="hint" style="margin-top:12px;">Press <b>R</b> or click to restart</div>
-  </div>
+   </div>
 </div>
 
 <script>
@@ -164,7 +185,6 @@
   const BOSS_HP_BASE=5175, BOSS_HP_STEP=1.20, BOSS_R=30, BOSS_RATE_P2=0.65, BOSS_SPEED_P2=1.15;
   const MAX_BOTS_BASE=14, MAX_BOTS_PER_LEVEL=1, MAX_BOTS_HARD_CAP=26;
 
-  // ------- Biomes (visual only) -------
   const BIOMES = [
     { name: 'Factory', tint: 'rgba(80,80,80,0.18)', obsColor: '#555' },
     { name: 'Jungle',  tint: 'rgba(40,60,40,0.18)', obsColor: '#3e4a3e' },
@@ -172,7 +192,6 @@
   ];
   let currentBiome = 0;
 
-  // ------- DOM -------
   const cvs=document.getElementById('game'), ctx=cvs.getContext('2d',{alpha:false});
   const sbScore=document.getElementById('sbScore'), sbBest=document.getElementById('sbBest'), sbLevel=document.getElementById('sbLevel');
   const sbMult=document.getElementById('sbMult'), sbPower=document.getElementById('sbPower');
@@ -182,8 +201,16 @@
   const nameInput=document.getElementById('nameInput'), saveBtn=document.getElementById('saveScoreBtn'), saveNote=document.getElementById('saveNote');
   const globTop=document.getElementById('globTop'), globYou=document.getElementById('globYou'), dailyProg=document.getElementById('dailyProg');
   const lbTop10=document.getElementById('lbTop10');
+  const btnStart=document.getElementById('Start'),
+      btnRestart=document.getElementById('Restart'),
+      btnHofClose=document.getElementById('hofClose');
 
-  // ------- Helpers -------
+  // ------- Close Hall of Fame -------
+   btnHofClose.addEventListener('click', () => {
+   hof.style.display = 'none';
+   startGame(); // restart the game immediately
+  });
+
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const rand=(a,b)=>a+Math.random()*(b-a);
   const rectOverAny=(r,arr)=>arr.some(o=>!(r.x+r.w<o.x||r.x>o.x+o.w||r.y+r.h<o.y||r.y>o.y+o.h));
@@ -196,6 +223,7 @@
      document.activeElement.isContentEditable);
 
   function addShake(s,m=6,d=0.2){ s.shakeMag=Math.max(s.shakeMag||0,m); s.shakeT=Math.max(s.shakeT||0,d); }
+
 
   // ------- Audio -------
   const audio={ ctx:null, master:null, sfxGain:null, muted:false, main:null, boss:null, defeat:null, current:'main' };
@@ -713,16 +741,14 @@
     s.explosions.forEach(ex=>{ const t=ex.t/ex.dur; const r=ex.r0+(ex.r1-ex.r0)*t, a=1-t; ctx.save(); ctx.globalAlpha=a*0.9; ctx.strokeStyle=ex.color; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(ex.x,ex.y,r,0,Math.PI*2); ctx.stroke(); ctx.globalAlpha=a*0.35; ctx.fillStyle=ex.color; ctx.beginPath(); ctx.arc(ex.x,ex.y,r*0.6,0,Math.PI*2); ctx.fill(); ctx.restore(); });
 
     // overlays
-    ctx.textAlign='center';
+    ctx.textAlign='center'; ctx.textBaseline = 'middle';
     if(s.levelUpFlash>0 && Math.floor(s.time*6)%2===0){ ctx.font='bold 28px ui-sans-serif,system-ui'; ctx.fillStyle='#fff'; ctx.fillText('Level Up!', W/2, MAP_MARGIN+34); }
     if(s.banner){ const alpha=1-Math.max(0,(s.banner.t/s.banner.dur)-0.6); ctx.globalAlpha=Math.max(0,alpha); ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 40px ui-sans-serif,system-ui'; ctx.fillText(s.banner.text, W/2, H/2); ctx.globalAlpha=1; }
     ctx.restore();
 
     // Menu/intro overlays
     ctx.setTransform(1,0,0,1,0,0);
-    if(s.mode==='intro'){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; const t=s.time; const a=Math.min(1,t/0.5)*(t<1.2?1:Math.max(0,2-t)); ctx.globalAlpha=a; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-10); ctx.globalAlpha=Math.max(0,a*0.8); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('a tiny top-down shooter', W/2, H/2+22); ctx.globalAlpha=1; }
-    else if(s.mode==='menu'){ ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 36px ui-sans-serif,system-ui'; ctx.fillText('MataTudo', W/2, H/2-60); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('Press SPACE to start', W/2, H/2+8); ctx.fillText(`Best: ${s.bestScore}`, W/2, H/2+36); }
-    else if(s.mode==='countdown'){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText(String(Math.max(1,Math.ceil(s.countdown))), W/2, H/2); }
+    if(s.mode==='intro'){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; const t=s.time; const a=Math.min(1,t/0.5)*(t<1.2?1:Math.max(0,2-t)); ctx.globalAlpha=a; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText('Press Start', W/10, H/6-10); ctx.globalAlpha=Math.max(0,a*0.8); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('', W/2, H/2+22); ctx.globalAlpha=1; } else if(s.mode==='countdown'){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText(String(Math.max(1,Math.ceil(s.countdown))), W/2, H/2); }
   }
 
   // ------- Hall of Fame (local names) -------
@@ -745,59 +771,54 @@
     saveNote.textContent = canSave ? "Top 10 lists are stored locally in your browser." : "This run didn’t reach Top 10. You can still restart.";
 
     saveBtn.onclick = () => {
-      const name = sanitizeName(nameInput.value);
-      try { localStorage.setItem(LS_NAME, name); } catch {}
-      const entry = { name, score:s.score, level:s.level, accuracy:acc, ts:Date.now() };
-      const t2 = [...today, entry].sort((a,b)=>b.score-a.score).slice(0,8);
-      const a2 = [...all, entry].sort((a,b)=>b.score-a.score).slice(0,10);
-      saveBoards(a2, t2);
-      renderBoards(a2, t2);
-      renderRightTop10();
-      saveBtn.disabled = true;
-      saveNote.textContent = "Saved locally ✔";
-    };
+  const name = sanitizeName(nameInput.value);
+  try { localStorage.setItem(LS_NAME, name); } catch {}
+  const entry = { name, score:s.score, level:s.level, accuracy:acc, ts:Date.now() };
+  const t2 = [...today, entry].sort((a,b)=>b.score-a.score).slice(0,8);
+  const a2 = [...all, entry].sort((a,b)=>b.score-a.score).slice(0,10);
+  saveBoards(a2, t2);
+  renderBoards(a2, t2);
+  renderRightTop10();
+  saveBtn.disabled = true;
+  saveNote.textContent = "Saved locally ✔";
+
+  // hide popup and jump back into the game
+  hof.style.display = 'none';
+  startGame();
+  };
   }
 
-  // ------- Input / Loop -------
+  /* ------- Input / Loop ------- */
   function toLocal(e){ const r=cvs.getBoundingClientRect(); s.mouse.x=(e.clientX-r.left)*(W/r.width); s.mouse.y=(e.clientY-r.top)*(H/r.height); }
 
+  // mouse: no more click-to-restart
   window.addEventListener('mousedown', (e) => {
-    // If HoF is open and click is inside it, don't restart
-    if (s.mode === 'gameover') {
-      const inner = hof.querySelector('.hof-inner');
-      if (inner && inner.contains(e.target)) return;
-    }
-    s.mouse.down = true;
-    toLocal(e);
-    if (s.mode === 'intro') { s.mode = 'menu'; stopAllMusic(); return; }
-    if (s.mode === 'gameover') { startGame(); return; }
+    s.mouse.down = true; toLocal(e);
+    if (s.mode === 'intro') { s.mode = 'menu'; stopAllMusic(); }
   });
   window.addEventListener('mouseup',()=>s.mouse.down=false);
-
-  // keep mouse position live while aiming
   window.addEventListener('mousemove', toLocal);
 
+  // keyboard: remove R/SPACE starts
   window.addEventListener('keydown', (e) => {
     const k=e.key.toLowerCase();
     if (!e.repeat) s.keys[k]=true;
-
-    // If typing in an input, ignore hotkeys
     if (isEditing()) return;
-
     if (k==='m'){ toggleMute(); return; }
-    if (k==='r'){ startGame(); return; }
-
     if (s.mode==='intro'){ s.mode='menu'; stopAllMusic(); return; }
-    if (s.mode==='menu' && e.code==='Space'){ startGame(); return; }
-    if (s.mode==='gameover' && e.code==='Space'){ startGame(); return; }
   });
   window.addEventListener('keyup',e=>{ s.keys[e.key.toLowerCase()]=false; });
+
+  // buttons: start / restart
+  btnStart.addEventListener('click', () => { if (s.mode!=='playing' && s.mode!=='countdown') startGame(); });
+  btnRestart.addEventListener('click', () => { startGame(); });
 
   btnPause.addEventListener('click',()=>{ s.running=!s.running; btnPause.textContent=s.running?'Pause':'Resume'; });
 
   let raf; function step(t){ if(!s.lastTime) s.lastTime=t; const dt=Math.min(0.033,(t-s.lastTime)/1000); s.lastTime=t; update(dt); draw(); raf=requestAnimationFrame(step); }
   raf=requestAnimationFrame(step);
   window.addEventListener('beforeunload',()=>{ cancelAnimationFrame(raf); stopAllMusic(); });
+
 })();
 </script>
 </body>
