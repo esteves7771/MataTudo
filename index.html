@@ -193,12 +193,14 @@ body{
   const CRIMSON_MAX_ONSCREEN=(lvl)=> lvl>=40?2:1;
   const BOSS_HP_BASE=5175, BOSS_HP_STEP=1.20, BOSS_R=30, BOSS_RATE_P2=0.65, BOSS_SPEED_P2=1.15;
   const MAX_BOTS_BASE=14, MAX_BOTS_PER_LEVEL=1, MAX_BOTS_HARD_CAP=26;
+  const TELEGRAPH_DUR_NORMAL = 0.55;
+  const TELEGRAPH_DUR_BOSS   = 0.90;
 
   const BIOMES = [
-    { name: 'Factory', tint: 'rgba(80,80,80,0.18)', obsColor: '#555' },
-    { name: 'Jungle',  tint: 'rgba(40,60,40,0.18)', obsColor: '#3e4a3e' },
-    { name: 'Neon City', tint: 'rgba(60,20,60,0.18)', obsColor: '#402a40' }
-  ];
+  { name: 'Factory',   tint:'rgba(80,80,80,0.18)',  obsColor:'#555',    style:'factory' },
+  { name: 'Jungle',    tint:'rgba(40,60,40,0.18)',  obsColor:'#3e4a3e', style:'jungle'  },
+  { name: 'Neon City', tint:'rgba(60,20,60,0.18)',  obsColor:'#402a40', style:'neon'    },
+];
   let currentBiome = 0;
 
   const cvs=document.getElementById('game'), ctx=cvs.getContext('2d',{alpha:false});
@@ -262,7 +264,7 @@ body{
     player:{ x:W/2, y:H/2, r:12, speed:240, hp:100, fireCooldown:0, flashTimer:0, hitCooldown:0, knockbackX:0, knockbackY:0, kbT:0 },
     shields:0, shieldHP:0, killsSinceShield:0,
     keys:{}, mouse:{ x:W/2, y:H/2, down:false },
-    bullets:[], bots:[], particles:[], medkits:[], explosions:[],
+    bullets:[], bots:[], particles:[], medkits:[], explosions:[], setpieces: [],
     groundPattern:null, spawnTimer:0,
     firstWaveRemaining:4, firstWaveInterval:0.4, firstWaveTimer:0.4,
     obstacles:[ {x:420,y:280,w:140,h:120},{x:870,y:520,w:180,h:88},{x:650,y:150,w:100,h:96},{x:220,y:560,w:190,h:48} ],
@@ -419,6 +421,9 @@ body{
       ai, phase:'aim', phaseT:0, spiralA:0, enraged:false, dashT:0, dashTele:0, dashCD:3.8
     };
     s.bots.push(bot);
+    // --- spawn telegraph: inert for a moment with a warning ring
+    bot.spawnT   = bot.boss ? TELEGRAPH_DUR_BOSS : TELEGRAPH_DUR_NORMAL;
+    bot.spawnMax = bot.spawnT;  // for draw % progress
   }
   function spawnShardFromBoss(b){
     const r=18, hp=220; const sp=100; const ang=Math.random()*Math.PI*2, dx=Math.cos(ang)*40, dy=Math.sin(ang)*40;
@@ -459,6 +464,8 @@ body{
     s.shotsFired=0; s.shotsHit=0; s.power={kind:null,t:0}; s.spawnEase=1; s.spawnEaseT=0;
     s.dailyDone=0;
     s.mode='countdown'; s.countdown=2; hof.style.display='none';
+    s.setpieces = []; spawnSetPiece('generator'); // one per run to start
+
   }
 
   function renderShields(){
@@ -514,16 +521,23 @@ body{
       if(s.firstWaveRemaining>0){ s.firstWaveTimer-=dt; if(s.firstWaveTimer<=0){ spawnBot('normal'); s.firstWaveRemaining--; s.firstWaveTimer=s.firstWaveInterval; } }
       if(s.score>0 && s.score%20===0 && s.lastEliteAtScore!==s.score){ if(nonBossCount<cap) spawnBot('yellow'); s.lastEliteAtScore=s.score; }
     }
-    if(s.pendingBoss && !bossAlive){
-      s.bots = s.bots.filter(b=>b.boss);
-      s.bullets = s.bullets.filter(b=>b.owner==='player'); // wipe
-      startBossMusic(); audio.main?.pause();
-      s.banner={text:'BOSS INCOMING!',t:0,dur:1.8};
-      spawnBot('boss');
-      s.pendingBoss=false;
-    }
+    if (s.pendingBoss && !bossAlive){
+  // wipe non-bosses & non-player bullets, cue music, spawn boss
+  s.bots    = s.bots.filter(b => b.boss);
+  s.bullets = s.bullets.filter(b => b.owner === 'player');
+  startBossMusic(); audio.main?.pause();
+  s.banner  = { text:'BOSS INCOMING!', t:0, dur:1.8 };
+  spawnBot('boss');
+  s.pendingBoss = false;
+}
 
-    const p=s.player; p.hitCooldown=Math.max(0,p.hitCooldown-dt); p.flashTimer=Math.max(0,p.flashTimer-dt); p.kbT=Math.max(0,p.kbT-dt);
+
+    const p=s.player;
+p.hitCooldown=Math.max(0,p.hitCooldown-dt);
+p.flashTimer=Math.max(0,p.flashTimer-dt);
+p.kbT=Math.max(0,p.kbT-dt);
+p.recoilT=Math.max(0,(p.recoilT||0)-dt);
+p.muzzleT=Math.max(0,(p.muzzleT||0)-dt);
     let ix=0,iy=0; if(s.keys['w']||s.keys['arrowup'])iy--; if(s.keys['s']||s.keys['arrowdown'])iy++; if(s.keys['a']||s.keys['arrowleft'])ix--; if(s.keys['d']||s.keys['arrowright'])ix++;
     const mag=Math.hypot(ix,iy)||1; let mvx=ix/mag*p.speed*dt, mvy=iy/mag*p.speed*dt;
     if(p.kbT>0){ mvx+=p.knockbackX*(p.kbT*4)*dt; mvy+=p.knockbackY*(p.kbT*4)*dt; }
@@ -541,15 +555,22 @@ body{
       const push=(ang,exp)=>s.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,r:3,owner:'player',life:2,explosive:exp});
       if(shots===1) push(baseAng,s.power.kind==='explosive'); else { const half=(shots-1)/2; for(let i=0;i<shots;i++){ push(baseAng+(i-half)*spread, s.power.kind==='explosive'); } }
       s.shotsFired+=shots; spawnParticles(p.x+Math.cos(baseAng)*p.r,p.y+Math.sin(baseAng)*p.r,'#fff8',6,1.6);
-      p.flashTimer=0.07; p.fireCooldown=cooldown; SFX.shot();
+      p.fireCooldown = cooldown; SFX.shot();
+p.recoilT = 0.06;
+p.muzzleT = 0.03; // shorter muzzle flash
+
     }
 
     // AI + fire
-    s.bots.forEach(b=>{
-      b.jitter=(b.jitter||0)+dt*2.2;
-      const vx=p.x-b.x, vy=p.y-b.y; const d=Math.hypot(vx,vy)||1;
-      const holdDist = (b.boss? (b.r+p.r+120):(b.r+p.r+60));
-      let ax=0, ay=0;
+       s.bots.forEach(b=>{
+  // still telegraphing: don't move/act yet
+  if ((b.spawnT||0) > 0) { b.spawnT -= dt; return; }
+
+  b.jitter = (b.jitter||0) + dt*2.2;
+  const vx = p.x - b.x, vy = p.y - b.y;
+  const d  = Math.hypot(vx,vy) || 1;
+  const holdDist = (b.boss ? (b.r+p.r+120) : (b.r+p.r+60));
+  let ax = 0, ay = 0;
 
       if(!b.boss){
         if(d>holdDist+10){ ax=vx/d; ay=vy/d; }
@@ -622,6 +643,10 @@ body{
               audio.boss?.pause(); startMainMusic();
               s.spawnEase=0.4; s.spawnEaseT=12;
 
+              s.setpieces = [];           // clear old
+              spawnSetPiece(Math.random()<0.5 ? 'generator' : 'pod');
+
+
               // rotate biome safely here
               currentBiome = (currentBiome + 1) % BIOMES.length;
               s.banner = { text: `${BIOMES[currentBiome].name}`, t: 0, dur: 1.5 };
@@ -648,6 +673,25 @@ body{
       }
       return true;
     });
+
+    // --- set pieces capture logic
+s.setpieces.forEach(sp=>{
+  if (sp.done) return;
+  const d = Math.hypot(sp.x - s.player.x, sp.y - s.player.y);
+  if (d < sp.r + s.player.r + 6){
+    sp.progress = Math.min(2, sp.progress + dt); // ~2s inside
+  } else {
+    sp.progress = Math.max(0, sp.progress - dt*0.6);
+  }
+  if (sp.progress >= 2){
+    sp.done = true;
+    if (s.shields < SHIELD_MAX){ s.shields++; s.shieldHP = s.shields * SHIELD_HP; }
+    else { s.power = {kind:'rapid', t:12}; }
+    spawnParticles(sp.x, sp.y, '#9effff', 24, 3);
+    s.banner = { text: 'SET PIECE SECURED!', t:0, dur:1.6 };
+  }
+});
+
 
     if(s.spawnEaseT>0){ s.spawnEaseT-=dt; s.spawnEase = clamp(s.spawnEase + dt*0.04, 0.4, 1); }
     s.explosions.forEach(ex=>ex.t+=dt); s.explosions=s.explosions.filter(ex=>ex.t<ex.dur);
@@ -679,6 +723,74 @@ body{
     s.mult=1; s.multT=0;
   }
 
+
+    function drawTelegraph(b){
+  const t  = Math.max(0, b.spawnT) / Math.max(0.0001, b.spawnMax||1);
+  const r0 = b.r + 8;
+  const r1 = r0 + 26;
+  const r  = r0 + (1 - t) * (r1 - r0);   // expand
+  const a  = 0.25 + 0.55 * t;            // fade out
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6,6]);
+  ctx.strokeStyle = b.boss ? '#ff9b9b' : '#9ac8ff';
+  ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+  // little inward arrow
+  const ux = (s.player.x - b.x), uy = (s.player.y - b.y);
+  const d  = Math.hypot(ux,uy)||1; const ax = b.x + (ux/d)*(r+10), ay = b.y + (uy/d)*(r+10);
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax - (ux/d)*10, ay - (uy/d)*10); ctx.stroke();
+  ctx.restore();
+}
+
+  function spawnSetPiece(type){
+  // pick a free spot, like medkits
+  for(let tries=0; tries<120; tries++){
+    const r=18;
+    const x=MAP_MARGIN+r+Math.random()*(W-2*(MAP_MARGIN+r));
+    const y=MAP_MARGIN+r+Math.random()*(H-2*(MAP_MARGIN+r));
+    if (Math.hypot(x-s.player.x, y-s.player.y) < 140) continue;
+    if (s.obstacles.some(o=>rectCircleOverlap(x,y,r+8,o))) continue;
+    s.setpieces.push({type, x, y, r, progress:0, done:false});
+    return;
+  }
+}
+
+function drawSetPiece(sp){
+  ctx.save();
+  // base plate
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(sp.x,sp.y+sp.r*0.6, sp.r*0.9, sp.r*0.35, 0,0,Math.PI*2); ctx.fill();
+
+  const biome = BIOMES[currentBiome].style;
+  if (sp.type==='generator'){
+    // universal generator look
+    ctx.fillStyle = (biome==='neon') ? '#673ab7' : (biome==='jungle' ? '#3b6b4a' : '#6b6b6b');
+    ctx.fillRect(sp.x-14, sp.y-10, 28, 20);
+    ctx.fillStyle = '#222'; ctx.fillRect(sp.x-8, sp.y-6, 16, 12);
+    // pulse light
+    const a = 0.4 + 0.6*Math.abs(Math.sin(s.time*3));
+    ctx.fillStyle = `rgba(130,220,255,${a})`;
+    ctx.fillRect(sp.x-4, sp.y-2, 8, 4);
+  } else {
+    // crashed pod
+    ctx.fillStyle = (biome==='neon') ? '#00e5ff' : '#9bb8cc';
+    ctx.beginPath(); ctx.ellipse(sp.x, sp.y, 16, 10, 0.3, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#233'; ctx.stroke();
+  }
+
+  // capture ring/progress
+  if (!sp.done){
+    ctx.strokeStyle = '#a7f3d0';
+    ctx.lineWidth   = 2;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.r+10, -Math.PI/2, -Math.PI/2 + 2*Math.PI*clamp(sp.progress/2,0,1)); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+
   // ------- Draw -------
   function drawSoldier(x,y,ang,r,flash,lowHP){
     ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
@@ -694,17 +806,57 @@ body{
       ctx.strokeStyle='rgba(100,170,255,.35)'; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(0,0,r+10*pulse,0,Math.PI*2); ctx.stroke();
     }
     ctx.restore();
+  
   }
-  function drawObstacle(o,a=1){
-    ctx.save();
-    ctx.globalAlpha=a;
-    ctx.fillStyle= BIOMES[currentBiome].obsColor;
-    ctx.fillRect(o.x,o.y,o.w,o.h);
-    ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.strokeRect(o.x+0.5,o.y+0.5,o.w-1,o.h-1);
-    ctx.fillStyle='rgba(255,255,255,0.08)';
-    for(let i=0;i<30;i++){ const rx=o.x+4+Math.random()*(o.w-8),ry=o.y+4+Math.random()*(o.h-8); ctx.fillRect(rx,ry,1,1);}
-    ctx.restore();
+  function drawObstacle(o, a=1){
+  ctx.save();
+  ctx.globalAlpha = a;
+  const biome = BIOMES[currentBiome].style;
+
+  // base block
+  ctx.fillStyle = BIOMES[currentBiome].obsColor;
+  ctx.fillRect(o.x,o.y,o.w,o.h);
+
+  // inner style
+  if (biome==='factory'){
+    // metal plates + bolts + hatch lines
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    for(let y=o.y+8; y<o.y+o.h-8; y+=18){ ctx.fillRect(o.x+6, y, o.w-12, 2); }
+    ctx.fillStyle = '#777';
+    for(let yy=o.y+10; yy<o.y+o.h-10; yy+=26){
+      for(let xx=o.x+10; xx<o.x+o.w-10; xx+=36){
+        ctx.fillRect(xx,yy,2,2);
+      }
+    }
+  } else if (biome==='jungle'){
+    // mossy edges + vines
+    const g = ctx.createLinearGradient(o.x,o.y,o.x,o.y+o.h);
+    g.addColorStop(0,'rgba(30,60,30,0.35)');
+    g.addColorStop(1,'rgba(30,60,30,0.05)');
+    ctx.fillStyle = g; ctx.fillRect(o.x,o.y,o.w,o.h);
+    ctx.fillStyle = 'rgba(50,120,50,0.3)';
+    for(let i=0;i<Math.max(2,Math.floor(o.w/80));i++){
+      const vx = o.x + 6 + Math.random()*(o.w-12);
+      ctx.fillRect(vx, o.y, 2, 8 + Math.random()*Math.min(22,o.h-16));
+    }
+  } else { // neon
+    // neon frame + “windows”
+    ctx.strokeStyle = 'rgba(255,120,255,0.45)';
+    ctx.lineWidth = 2; ctx.strokeRect(o.x+1.5,o.y+1.5,o.w-3,o.h-3);
+    ctx.fillStyle = 'rgba(200,200,255,0.06)';
+    const rows = Math.max(1, Math.floor(o.h/22));
+    for(let r=0;r<rows;r++){
+      const yy = o.y + 6 + r*18;
+      ctx.fillRect(o.x+8, yy, o.w-16, 6);
+    }
   }
+
+  // soft border
+  ctx.strokeStyle='rgba(0,0,0,0.25)';
+  ctx.strokeRect(o.x+0.5,o.y+0.5,o.w-1,o.h-1);
+  ctx.restore();
+}
+
 
 // --- 8-bit bot renderer ---
 const PIXEL = {
@@ -767,6 +919,112 @@ if (!b.boss) {
   ctx.stroke();
 }
 
+  // --- 8-bit CAT soldier (procedural, angle snapped to 16 steps) ---
+function drawPlayerCat8bit(p, ang){
+  // snap aim to keep pixels crisp
+  const STEP = (Math.PI*2)/16;
+  const qa = Math.round(ang/STEP)*STEP;
+
+  const CAT_SCALE = 1.22; // ~18% bigger visuals, hitbox unchanged
+const sPX = Math.max(1, Math.round((p.r*2*CAT_SCALE)/12));
+const size = 12*sPX;
+const x0 = Math.round(p.x - 6*sPX);
+const y0 = Math.round(p.y - 6*sPX);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y + 0.7*p.r, 0.9*p.r, 0.35*p.r, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // outline box
+  
+
+  // torso / armor
+  ctx.fillStyle = '#8aa0ff';
+  ctx.fillRect(x0+2*sPX, y0+3*sPX, 8*sPX, 6*sPX);
+
+  // helmet + brim
+  ctx.fillStyle = '#5d74e6';
+  ctx.fillRect(x0+3*sPX, y0+2*sPX, 6*sPX, 2*sPX);
+  ctx.fillRect(x0+4*sPX, y0+1*sPX, 4*sPX, 1*sPX);
+
+  // cat ears (through helmet)
+  ctx.fillStyle = '#c8d1ff';
+  ctx.fillRect(x0+3*sPX, y0+0*sPX, 2*sPX, 1*sPX);
+  ctx.fillRect(x0+7*sPX, y0+0*sPX, 2*sPX, 1*sPX);
+
+  // arms
+  ctx.fillStyle = '#4354a5';
+  ctx.fillRect(x0+1*sPX, y0+5*sPX, 2*sPX, 2*sPX);
+  ctx.fillRect(x0+9*sPX, y0+5*sPX, 2*sPX, 2*sPX);
+
+  // legs
+  ctx.fillRect(x0+3*sPX, y0+9*sPX, 2*sPX, 2*sPX);
+  ctx.fillRect(x0+7*sPX, y0+9*sPX, 2*sPX, 2*sPX);
+
+  // eyes (nudge toward aim)
+  const eyeShift = (Math.abs(Math.cos(qa))>0.5) ? sPX : 0;
+  const ex = (Math.cos(qa)>0?1:-1)*eyeShift;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x0+3*sPX+ex, y0+4*sPX, 2*sPX, 2*sPX);
+  ctx.fillRect(x0+7*sPX+ex, y0+4*sPX, 2*sPX, 2*sPX);
+
+  // tail: opposite aim with tiny wobble
+  const opp = qa + Math.PI;
+  const dx = Math.round(Math.cos(opp));
+  const dy = Math.round(Math.sin(opp));
+  const ax = x0 + 6*sPX - dx*2*sPX;
+  const ay = y0 + 8*sPX - dy*2*sPX;
+  for(let i=1;i<=3;i++){
+    const wobble = Math.round(Math.sin(s.time*6 + i*0.8)); // uses global s.time
+    ctx.fillStyle = '#c8d1ff';
+    ctx.fillRect(ax + (dx*i + wobble)*sPX, ay + (dy*i)*sPX, 1*sPX, 1*sPX);
+  }
+
+  // gun along quantized aim
+  const gx0 = x0 + 6*sPX, gy0 = y0 + 6*sPX;
+  const gdx = Math.round(Math.cos(qa)), gdy = Math.round(Math.sin(qa));
+  ctx.fillStyle = '#dcdcdc';
+  let tipX=gx0, tipY=gy0;
+  for(let i=0;i<4;i++){
+    const px = gx0 + (gdx*(i+1))*sPX;
+    const py = gy0 + (gdy*(i+1))*sPX;
+    ctx.fillRect(px-1*sPX, py-1*sPX, 2*sPX, 2*sPX);
+    tipX = px; tipY = py;
+  }
+  // muzzle flash
+  if (p.muzzleT > 0){
+  ctx.fillStyle = '#ffe27a';
+  ctx.fillRect(Math.round(tipX-0.5*sPX), Math.round(tipY-0.5*sPX), 1*sPX, 1*sPX);
+}
+
+  // damage flash
+  if (p.hitCooldown > 0){
+  const a = Math.min(0.28, 0.22*(p.hitCooldown/0.35));
+  if (a > 0.01){
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x0, y0, size, size);
+    ctx.globalAlpha = 1;
+  }
+}
+
+  // shield ring (same as before)
+  if(s.shieldHP>0){
+    const pulse = 0.85 + 0.15*Math.sin(s.time*6);
+    ctx.strokeStyle='rgba(100,170,255,.85)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r+6*pulse,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle='rgba(100,170,255,.35)'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r+10*pulse,0,Math.PI*2); ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 
   function draw(){
     // Clear/paint background with identity transform (fixes edge artifacts)
@@ -789,14 +1047,23 @@ if (!b.boss) {
     // obstacles
     s.obstacles.forEach(o=>drawObstacle(o, s.obstacleAlpha));
 
+    // set pieces
+    s.setpieces.forEach(drawSetPiece);
+
+
     // pickups
     s.medkits.forEach(m=>{ const blink=m.timeLeft<5?(Math.floor(m.timeLeft*10)%2===0):true; if(!blink) return; const r=m.r;
       if(m.power){ ctx.fillStyle='#c8f7ff'; ctx.beginPath(); ctx.arc(m.x,m.y,r,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#0ea5e9'; ctx.font='10px ui-sans-serif'; ctx.textAlign='center'; ctx.fillText(m.power[0].toUpperCase(), m.x, m.y+3); ctx.textAlign='start'; }
       else { ctx.fillStyle='#e5f7ff'; ctx.fillRect(m.x-r,m.y-r,r*2,r*2); ctx.strokeStyle='#94a3b8'; ctx.strokeRect(m.x-r+0.5,m.y-r+0.5,r*2-1,r*2-1); ctx.fillStyle='#e11d48'; ctx.fillRect(m.x-r*0.25,m.y-r*0.8,r*0.5,r*1.6); ctx.fillRect(m.x-r*0.8,m.y-r*0.25,r*1.6,r*0.5); }
     });
 
-    // player
-    const p=s.player; const ang=Math.atan2(s.mouse.y-p.y,s.mouse.x-p.x); drawSoldier(p.x,p.y,ang,p.r,p.flashTimer,low);
+s.bots.forEach(b => { if ((b.spawnT||0) > 0) drawTelegraph(b); });
+
+
+    // player (8-bit cat)
+const p=s.player;
+const ang=Math.atan2(s.mouse.y-p.y,s.mouse.x-p.x);
+drawPlayerCat8bit(p, ang);
 
     // bots (8-bit style)
 s.bots.forEach(b=>{
@@ -861,7 +1128,7 @@ const STAGE_W = 220 + 22 + 1260 + 22 + 220; // left SB + gaps + canvas + gaps + 
 const STAGE_H = 780 + 18 + 18;               // canvas height + shell vertical padding = 816
 const shellEl = document.querySelector('.shell');
 
-const HEADROOM = 0.85; // tweak 0.90–0.98 to taste
+const HEADROOM = 0.70; // tweak 0.90–0.98 to taste // --- SCREEN RATIO
 
 function fitStage(){
   const vw = (window.visualViewport?.width ?? window.innerWidth);
