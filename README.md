@@ -46,3 +46,20 @@ This game was **conceptualized, coded, tested, and fully deployed in 2–3 days*
   **Solution:** Added a 3-second delay before restart option appears.
 - **Problem:** Too many bullets and effects causing clutter.  
   **Solution:** Implemented conditional bullet trails and reduced enemy spawn rate for smoother play.
+
+  Here’s a copy-paste-ready README block:
+
+## Skills Used
+
+* **Game architecture & state machine** (intro → menu → countdown → playing → gameover)
+* **Canvas 2D rendering** (draw order, procedural sprites, particles, muzzle flash, screen shake)
+* **Math & collisions** (vector math, circle–rect, AABB, bullet stepping, clamping)
+* **AI & behaviors** (boss phases: aim/burst/spiral, enrages/dashes, mini-boss split, telegraphs)
+* **Procedural generation** (obstacle layouts with BFS reachability, biomes, set-piece placement)
+* **Balancing & pacing** (spawn caps/timers, elite/crimson gating, boss lulls, power-up cadence)
+* **Audio integration** (HTMLAudio + light Web Audio SFX, mute/volume, music per phase)
+* **UI/UX & CSS** (HUD panels, responsive poster-fit scaling, safe-area insets, micro-feedback banners)
+* **Persistence** (localStorage leaderboards, daily goals, name sanitization & migration)
+* **Debugging & iteration** (black-screen fixes, minimal diffs, rapid test cycles)
+* **AI-assisted development** (spec-driven prompts, pair programming, change verification)
+
