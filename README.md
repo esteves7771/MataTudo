@@ -30,6 +30,102 @@ It’s a fully playable HTML5 game with procedurally generated maps, enemy AI, b
 
 ---
 
+🌐 Global Leaderboard (Firebase)
+This build adds a cloud leaderboard using Firebase (Web v10 via CDN), Anonymous Auth, and Firestore.
+
+What it does
+Signs players in anonymously on load.
+
+Saves a score document: { uid, name, score, level, accuracy, ts }.
+
+Reads and renders Top-10 in the right panel.
+
+Keeps the original localStorage boards as an offline fallback.
+
+Setup (one-time)
+Firebase Console → create project → Add app → Web.
+
+Enable Authentication → Anonymous.
+
+Enable Firestore (production or test).
+
+In index.html, set your config inside the <script type="module"> Firebase block:
+
+js
+Copy
+Edit
+const firebaseConfig = {
+  apiKey: "…",
+  authDomain: "your-project-id.firebaseapp.com",
+  projectId: "your-project-id",
+  storageBucket: "your-project-id.appspot.com",
+  messagingSenderId: "…",
+  appId: "…"
+};
+(API key here is not a secret; Firebase security relies on Firestore Rules.)
+
+Firestore structure
+scores/{autoId}
+uid:string, name:string(<=10), score:int, level:int, accuracy:int(0–100), ts:timestamp
+
+users/{uid}
+lastSubmit: timestamp (optional “last activity” write)
+
+Minimal security rules (paste in Firestore Rules)
+pgsql
+Copy
+Edit
+// Firestore rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /scores/{id} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid','name','score','level','accuracy','ts'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 10
+        && request.resource.data.score is int && request.resource.data.score >= 0 && request.resource.data.score <= 10000000
+        && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 999
+        && request.resource.data.accuracy is int && request.resource.data.accuracy >= 0 && request.resource.data.accuracy <= 100;
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if false;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastSubmit']);
+      allow delete: if false;
+    }
+  }
+}
+Query used for Top-10
+js
+Copy
+Edit
+const qy = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
+Optional: add orderBy("ts","asc") as a tie-breaker (Firestore may prompt to create an index).
+
+How to verify quickly
+Open the browser DevTools Console while the game is running:
+
+js
+Copy
+Edit
+window.mtSubmitScore({ score: 999999, level: 1, accuracy: 100, name: "TestBot" })
+  .then(() => console.log("Write OK"))
+  .then(() => window.mtLoadGlobalTop());
+You should see [Firebase] init …, [Firebase] signed in (anon) uid: …, and the right-panel Top-10 update.
+
+Fallback & privacy
+If Firebase is unreachable, the game still works with local leaderboards.
+
+Player names are sanitized and truncated to 10 chars before writing.
+
+---
+
 ## ⏱ Development Speed
 This game was **conceptualized, coded, tested, and fully deployed in 2–3 days** using ChatGPT for:
 - Code generation and bug fixing
