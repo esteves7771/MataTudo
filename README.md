@@ -46,8 +46,8 @@ This game was **conceptualized, coded, tested, and fully deployed in 2–3 days*
   **Solution:** Added a 3-second delay before restart option appears.
 - **Problem:** Too many bullets and effects causing clutter.  
   **Solution:** Implemented conditional bullet trails and reduced enemy spawn rate for smoother play.
-
-  Here’s a copy-paste-ready README block:
+  
+---
 
 ## Skills Used
 
