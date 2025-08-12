@@ -83,7 +83,8 @@ body{
 </head>
 <body>
 <div class="shell">
-  <!-- LEFT HUD -->
+  <!--------------------------------------------------------------------------------------------------------------------------------------- LEFT HUD -->
+
   <aside class="sidebar mono" id="leftHUD">
     <div class="sb-title">MataTudo <span class="build">• A14.3</span></div>
     <div class="sb-card">
@@ -124,12 +125,12 @@ body{
     </div>
   </aside>
 
-  <!-- CENTER: Playfield -->
+  <!------------------------------------------------------------------------------------------------------------------------------------------------------------------- CENTER: Playfield -->
   <main>
     <canvas id="game" width="1260" height="780"></canvas>
   </main>
 
-  <!-- RIGHT: Global / Missions -->
+  <!-------------------------------------------------------------------------------------------------------------------------------------------------------------- RIGHT: Global / Missions -->
   <aside class="sidebar mono rightpanel" id="rightHUD">
     <div class="sb-title">Global & Missions</div>
     <div class="sb-card">
@@ -153,7 +154,7 @@ body{
   </aside>
 </div>
 
-<!-- Hall of Fame -->
+<!------------------------------------------------------------------------------------------------------------------------------------------------------------------- Hall of Fame -->
 <div class="hof" id="hof">
   <div class="hof-inner">
     <button class="hof-x" id="hofClose" aria-label="Close">×</button>
@@ -177,7 +178,7 @@ body{
 
 <script>
 (() => {
-  // ------- Config -------
+  // ------- ---------------------------------------------------------------------------------------------------------------------------------------------------------- Config 
   const W=1260, H=780, MAP_MARGIN=12;
   const LEVEL_KILLS=30;
   const BOSS_LEVELS=[5,15,25,40,55,75,90,110,130,170,200,230,250];
@@ -216,7 +217,7 @@ body{
       btnRestart=document.getElementById('Restart'),
       btnHofClose=document.getElementById('hofClose');
 
-  // ------- Close Hall of Fame -------
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ Close Hall of Fame 
    btnHofClose.addEventListener('click', () => {
    hof.style.display = 'none';
    startGame(); // restart the game immediately
@@ -236,7 +237,8 @@ body{
   function addShake(s,m=6,d=0.2){ s.shakeMag=Math.max(s.shakeMag||0,m); s.shakeT=Math.max(s.shakeT||0,d); }
 
 
-  // ------- Audio -------
+  // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Audio 
+
   const audio={ ctx:null, master:null, sfxGain:null, muted:false, main:null, boss:null, defeat:null, current:'main' };
   function ensureAC(){ if(audio.muted) return; if(!audio.ctx){ const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return; const ac=new AC(); const master=ac.createGain(); master.gain.value=parseFloat(vol.value); master.connect(ac.destination); const sfx=ac.createGain(); sfx.gain.value=1; sfx.connect(master); audio.ctx=ac; audio.master=master; audio.sfxGain=sfx; } else if(audio.ctx.state==='suspended'){ audio.ctx.resume(); } }
   function setVolume(x){ if(audio.master) audio.master.gain.value=x; if(audio.main) audio.main.volume=audio.muted?0:x; if(audio.boss) audio.boss.volume=audio.muted?0:x; if(audio.defeat) audio.defeat.volume=audio.muted?0:x; }
@@ -253,11 +255,15 @@ body{
   btnMute.addEventListener('click',toggleMute);
   document.addEventListener('keydown',e=>{ if(e.key.toLowerCase()==='m') toggleMute(); });
 
-  // ------- State -------
+  // --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- State 
+
   const s={
     time:0,lastTime:0, running:true, dt:0,
     mode:'intro', introTime:0, countdown:2,
     level:1, levelUpFlash:0, pendingBoss:false,
+    bossSplitPending:false,
+    bossCount: 0,
+    lastBossPos:{x:W/2, y:H/2},
     score:0, bestScore:0, mult:1, multT:0,
     shotsFired:0, shotsHit:0,
     lastMedkitAtScore:0, lastEliteAtScore:0,
@@ -273,6 +279,7 @@ body{
     shakeT:0, shakeMag:0,
     banner:null,
     spawnEase:1.0, spawnEaseT:0,
+    eliteThrottleT:0,
     power:{kind:null,t:0},
     todayScores:[],
     dailyGoal:200, dailyDone:0,
@@ -288,7 +295,7 @@ body{
     s.groundPattern=ctx.createPattern(pc,'repeat');
   })();
 
-  // ------- Local Hall-of-Fame (v2 with names) -------
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Local Hall-of-Fame (v2 with names) 
   const LS_ALLTIME='matatudo_alltime_v2';
   const LS_TODAY='matatudo_today_v2';
   const LS_NAME='mt_player_name';
@@ -308,7 +315,7 @@ body{
   function saveBoards(all,today){ try{ localStorage.setItem(LS_ALLTIME, JSON.stringify(all)); }catch{} try{ localStorage.setItem(LS_TODAY, JSON.stringify(today)); }catch{} }
   function qualifies(score,list,limit=10){ if(list.length<limit) return true; const min=list[list.length-1]?.score ?? -1; return score>min; }
 
-  // Right panel Top‑10 render
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ Right panel Top‑10 render
   function renderRightTop10(){
     if(!lbTop10) return;
     let all=[]; try{ all=JSON.parse(localStorage.getItem(LS_ALLTIME))||[]; }catch{}
@@ -321,7 +328,8 @@ body{
   }
   renderRightTop10();
 
-  // ------- Map safety -------
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ Map safety 
+
   const MIN_GAP=30, MAX_OBS_W=260, MAX_OBS_H=220;
   function insetToPlayArea(x,y,w,h){ const left=MAP_MARGIN+MIN_GAP, top=MAP_MARGIN+MIN_GAP, right=W-MAP_MARGIN-MIN_GAP, bottom=H-MAP_MARGIN-MIN_GAP; w=Math.min(w,right-left); h=Math.min(h,bottom-top); x=clamp(x,left,right-w); y=clamp(y,top,bottom-h); return {x,y,w,h}; }
   function generateCandidateObstacles(currentEntities){
@@ -380,51 +388,117 @@ body{
     }
   }
 
-  // ------- FX -------
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ FX 
+
   function spawnParticles(x,y,color,count,size=2){ for(let i=0;i<count;i++){ const a=Math.random()*Math.PI*2,v=40+Math.random()*80; s.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:0.4+Math.random()*0.4,color,size}); } }
   function spawnExplosion(x,y,scale=1,color='#ffcf6b'){ s.explosions.push({x,y,t:0,dur:0.35,r0:8*scale,r1:36*scale,color}); }
   function addShakeNow(m=6,d=0.2){ s.shakeMag=Math.max(s.shakeMag||0,m); s.shakeT=Math.max(s.shakeT||0,d); }
 
-  // ------- Boss patterns -------
-  function bossShootAimed(b){ const p=s.player; const a=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.1; const sp=480; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); }
-  function bossShootBurst(b){ const N=16, base=Math.random()*Math.PI*2; for(let i=0;i<N;i++){ const a=base+i*(Math.PI*2/N); const sp=420; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); } }
-  function bossShootDoubleRing(b){ const N=18, base=s.time*0.8; for(let k=0;k<2;k++){ const off=base+k*0.15; for(let i=0;i<N;i++){ const a=off+i*(Math.PI*2/N); const sp=400; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp, r:3,owner:'bot',life:2,boss:true}); } } }
-  function bossShootSpiral(b){ b.spiralA=(b.spiralA||0)+0.42; const sp=460, a=b.spiralA; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); }
+  // ------- ----------------------------------------------------------------------------------------------------------------------------------------------------------Boss patterns 
 
-  // ------- Spawners -------
-  function spawnBot(kind='normal'){
-    let boss = (kind==='boss');
-    let elite = (kind==='yellow'||kind==='crimson');
-    let r = boss?BOSS_R : (kind==='crimson'?18 : (elite?16:12));
-    let tries=0,x=0,y=0;
-    while(tries++<60){
-      const edge=Math.floor(Math.random()*4);
-      if(edge===0){x=MAP_MARGIN+r+2;y=rand(MAP_MARGIN,H-MAP_MARGIN);} else if(edge===1){x=W-MAP_MARGIN-r-2;y=rand(MAP_MARGIN,H-MAP_MARGIN);} else if(edge===2){x=rand(MAP_MARGIN,W-MAP_MARGIN);y=MAP_MARGIN+r+2;} else {x=rand(MAP_MARGIN,W-MAP_MARGIN);y=H-MAP_MARGIN+r-2;}
-      const tooClose = Math.hypot(x-s.player.x,y-s.player.y) < (r+s.player.r+80);
-      if(tooClose) continue;
-      const blocked = s.obstacles.some(o=>rectCircleOverlap(x,y,r,o));
-      if(!blocked) break;
-    }
-    const baseSpeed = boss? 90 : 80+Math.random()*35;
-    let hp = 40, dmgMul=1, ai='rusher', shootEvery= (0.9+Math.random()*0.9);
-    if(kind==='normal'){ hp=40; ai = (Math.random()<.25)?'strafer':(Math.random()<.5)?'circler':(Math.random()<.75)?'sniper':'rusher'; }
-    if(kind==='yellow'){ hp=YELLOW_HP; dmgMul=1.2; shootEvery*=0.85; ai='strafer'; }
-    if(kind==='crimson'){ hp=CRIMSON_HP_BASE; dmgMul=1.35; shootEvery=1.3; ai='straferBurst'; }
-    if(boss){
-      const idx=BOSS_LEVELS.indexOf(s.level); const n = (idx>=0? idx+1 : 1);
-      hp = Math.floor(BOSS_HP_BASE * Math.pow(BOSS_HP_STEP, n-1));
-      shootEvery=0.6; ai='boss';
-    }
-    const speed = baseSpeed*(1+0.08*(s.level-1))*(elite?0.95:1);
-    const bot={ x,y,r, speed, hp, maxHP:hp, dmgMul, fireCooldown:0, shootEvery, jitter:Math.random()*Math.PI*2,
-      elite, boss, outline: boss?'#f88': (kind==='crimson'?'#ff9b57': (elite?'#7cf':null)),
-      ai, phase:'aim', phaseT:0, spiralA:0, enraged:false, dashT:0, dashTele:0, dashCD:3.8
-    };
-    s.bots.push(bot);
-    // --- spawn telegraph: inert for a moment with a warning ring
-    bot.spawnT   = bot.boss ? TELEGRAPH_DUR_BOSS : TELEGRAPH_DUR_NORMAL;
-    bot.spawnMax = bot.spawnT;  // for draw % progress
+  function bossShootAimed(b){ const p=s.player; const a=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.1; const sp=480; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true}); }
+  function bossShootBurst(b){
+  const N = b.miniBoss ? 10 : 16;
+  const base=Math.random()*Math.PI*2;
+  for(let i=0;i<N;i++){ const a=base+i*(Math.PI*2/N); const sp=420;
+    s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true});
   }
+}
+
+function bossShootDoubleRing(b){
+  const N = b.miniBoss ? 12 : 18;
+  const base=s.time*0.8;
+  for(let k=0;k<2;k++){
+    const off=base+k*0.15;
+    for(let i=0;i<N;i++){ const a=off+i*(Math.PI*2/N); const sp=400;
+      s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp, r:3,owner:'bot',life:2,boss:true});
+    }
+  }
+}
+
+function bossShootSpiral(b){
+  b.spiralA=(b.spiralA||0)+0.42;
+  const sp=460, a=b.spiralA;
+  s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true});
+}
+
+  function spawnMiniBossesFrom(parent){
+  const count = 2;
+  for (let i=0;i<count;i++){
+    const ang = Math.random()*Math.PI*2;
+    const off = 36;
+    const x = clamp(parent.x + Math.cos(ang)*off, MAP_MARGIN+24, W-MAP_MARGIN-24);
+    const y = clamp(parent.y + Math.sin(ang)*off, MAP_MARGIN+24, H-MAP_MARGIN-24);
+    const hpFrac = 0.35 + Math.random()*0.05; // 35–40%
+    const hp = Math.max(220, Math.floor((parent.maxHP||BOSS_HP_BASE) * hpFrac));
+    const r  = 22 + (Math.random()<0.5?0:2);
+    const speed = Math.max(80, parent.speed * 0.7);
+
+    s.bots.push({
+      x,y,r,
+      speed,
+      hp, maxHP:hp,
+      shootEvery: 0.6, fireCooldown: 0,
+      elite:false, boss:true, miniBoss:true,
+      ai:'boss',
+      jitter:Math.random()*Math.PI*2,
+      outline:'#f88',
+      phase:'aim', phaseT:0, spiralA:0, enraged:false,
+      dashT:0, dashTele:0, dashCD:4.8, // a bit quicker cycle
+      spawnT: TELEGRAPH_DUR_NORMAL, spawnMax: TELEGRAPH_DUR_NORMAL,
+      bossIndex: (parent.bossIndex||1) // carry forward for reference
+    });
+  }
+}
+
+
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Spawners 
+  function spawnBot(kind='normal'){
+  let boss = (kind==='boss');
+  let elite = (kind==='yellow'||kind==='crimson');
+  let r = boss?BOSS_R : (kind==='crimson'?18 : (elite?16:12));
+  let tries=0,x=0,y=0;
+  while(tries++<60){
+    const edge=Math.floor(Math.random()*4);
+    if(edge===0){x=MAP_MARGIN+r+2;y=rand(MAP_MARGIN,H-MAP_MARGIN);}
+    else if(edge===1){x=W-MAP_MARGIN-r-2;y=rand(MAP_MARGIN,H-MAP_MARGIN);}
+    else if(edge===2){x=rand(MAP_MARGIN,W-MAP_MARGIN);y=MAP_MARGIN+r+2;}
+    else {x=rand(MAP_MARGIN,W-MAP_MARGIN);y=H-MAP_MARGIN+r-2;}
+    const tooClose = Math.hypot(x-s.player.x,y-s.player.y) < (r+s.player.r+80);
+    if(tooClose) continue;
+    const blocked = s.obstacles.some(o=>rectCircleOverlap(x,y,r,o));
+    if(!blocked) break;
+  }
+  const baseSpeed = boss? 90 : 80+Math.random()*35;
+  let hp = 40, dmgMul=1, ai='rusher', shootEvery=(0.9+Math.random()*0.9);
+  if(kind==='normal'){ hp=40; ai=(Math.random()<.25)?'strafer':(Math.random()<.5)?'circler':(Math.random()<.75)?'sniper':'rusher'; }
+  if(kind==='yellow'){ hp=YELLOW_HP; dmgMul=1.2; shootEvery*=0.85; ai='strafer'; }
+  if(kind==='crimson'){ hp=CRIMSON_HP_BASE; dmgMul=1.35; shootEvery=1.3; ai='straferBurst'; }
+
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ boss setup (fixed)
+  let whichBoss = 0;
+  if (boss) {
+    whichBoss = (s.bossCount || 0) + 1;             // 1-based boss order
+    hp        = Math.floor(BOSS_HP_BASE * Math.pow(BOSS_HP_STEP, whichBoss - 1));
+    shootEvery = 0.6;
+    ai = 'boss';
+  }
+
+  const speed = baseSpeed*(1+0.08*(s.level-1))*(elite?0.95:1);
+  const bot = {
+    x,y,r, speed, hp, maxHP:hp, dmgMul, fireCooldown:0, shootEvery, jitter:Math.random()*Math.PI*2,
+    elite, boss, outline: boss?'#f88': (kind==='crimson'?'#ff9b57': (elite?'#7cf':null)),
+    ai, phase:'aim', phaseT:0, spiralA:0, enraged:false, dashT:0, dashTele:0, dashCD:3.8,
+    bossIndex: boss ? whichBoss : 0,   // <-- use the counter
+    miniBoss: false
+  };
+  s.bots.push(bot);
+  if (boss) s.bossCount = whichBoss;   // commit the spawn
+
+  bot.spawnT   = bot.boss ? TELEGRAPH_DUR_BOSS : TELEGRAPH_DUR_NORMAL;
+  bot.spawnMax = bot.spawnT;
+}
+
   function spawnShardFromBoss(b){
     const r=18, hp=220; const sp=100; const ang=Math.random()*Math.PI*2, dx=Math.cos(ang)*40, dy=Math.sin(ang)*40;
     s.bots.push({ x:b.x+dx, y:b.y+dy, r, speed:sp, hp, maxHP:hp, shootEvery:0.9, fireCooldown:0.4, elite:true, boss:false, ai:'straferBurst', jitter:Math.random()*Math.PI*2, outline:'#ffd372' });
@@ -448,7 +522,8 @@ body{
   function captureInitialMapOnce(){ if(!s.initialObstacles){ s.initialObstacles = s.obstacles.map(o=>({...o})); } }
   function resetToInitialMap(){ if(s.initialObstacles){ s.obstacles = s.initialObstacles.map(o=>({...o})); s.obstaclePhase='stable'; s.obstacleAlpha=1; } }
 
-  // ------- Start/reset -------
+  // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Start/reset 
+
   function startGame(){
     ensureAC(); stopAllMusic(); startMainMusic();
     captureInitialMapOnce(); resetToInitialMap();
@@ -465,6 +540,7 @@ body{
     s.dailyDone=0;
     s.mode='countdown'; s.countdown=2; hof.style.display='none';
     s.setpieces = []; spawnSetPiece('generator'); // one per run to start
+    s.bossCount = 0;
 
   }
 
@@ -485,10 +561,12 @@ body{
     dailyProg.textContent = `Progress: ${s.dailyDone} / ${s.dailyGoal}`;
   }
 
-  // ------- Update loop -------
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Update loop 
+
   function update(dt){
     s.dt=dt; s.time+=dt; updateObstacleFade(dt); updateSidebar();
     if(s.banner){ s.banner.t+=dt; if(s.banner.t>=s.banner.dur) s.banner=null; }
+    if (s.eliteThrottleT > 0) s.eliteThrottleT -= dt;
     if(s.power.kind){ s.power.t-=dt; if(s.power.t<=0) s.power.kind=null; }
     if(!s.running) return;
 
@@ -499,29 +577,60 @@ body{
 
     const bossAlive = s.bots.some(b=>b.boss);
     const nonBossCount = s.bots.reduce((n,b)=>n+(!b.boss?1:0),0);
-    const cap = clamp(MAX_BOTS_BASE + (s.level-1)*MAX_BOTS_PER_LEVEL, MAX_BOTS_BASE, MAX_BOTS_HARD_CAP);
+    const perLevel = (s.level <= 15) ? MAX_BOTS_PER_LEVEL : (MAX_BOTS_PER_LEVEL * 0.55);
+    const cap = clamp(MAX_BOTS_BASE + (s.level-1)*perLevel, MAX_BOTS_BASE, MAX_BOTS_HARD_CAP);
 
-    s.spawnTimer-=dt*(s.spawnEase);
-    if(!bossAlive && !s.pendingBoss){
-      if(nonBossCount < cap){
-        const spawnBase=Math.max(0.6, 1.7 - Math.min(60, s.score/5)*0.01);
-        const spawnScaled=Math.max(0.4, spawnBase * (1 - 0.045*(s.level-1)));
-        if(s.spawnTimer<=0){
-          const crimsonOn = (s.level>=10 && s.level % CRIMSON_SPAWN_EVERY_LV===0);
-          const crimsonCount = s.bots.filter(b=>b.outline==='#ff9b57').length;
-          if (crimsonOn && crimsonCount < CRIMSON_MAX_ONSCREEN(s.level)) {
-            spawnBot('crimson');
-          } else {
-            const roll = Math.random();
-            if (roll < Math.min(0.45, 0.05*s.level)) spawnBot('yellow'); else spawnBot('normal');
-          }
-          s.spawnTimer=spawnScaled;
-        }
-      }
-      if(s.firstWaveRemaining>0){ s.firstWaveTimer-=dt; if(s.firstWaveTimer<=0){ spawnBot('normal'); s.firstWaveRemaining--; s.firstWaveTimer=s.firstWaveInterval; } }
-      if(s.score>0 && s.score%20===0 && s.lastEliteAtScore!==s.score){ if(nonBossCount<cap) spawnBot('yellow'); s.lastEliteAtScore=s.score; }
+    // tick the spawn timer ONCE
+s.spawnTimer -= dt * s.spawnEase;
+
+// -----------------------------------------------------------------------------------------------------------------------only spawn when no boss AND the timer has elapsed
+if (!bossAlive && !s.pendingBoss && s.spawnTimer <= 0) {
+  if (nonBossCount < cap) {
+    const spawnBase = Math.max(0.6, 1.7 - Math.min(60, s.score/5)*0.01);
+    let levelFactor = 1 - 0.045*(s.level-1);
+    if (s.level >= 16) levelFactor = 1 - 0.030*(s.level-1);
+    const minInterval = (s.level >= 16) ? 0.55 : 0.4;
+    const spawnScaled = Math.max(minInterval, spawnBase * levelFactor);
+
+    const crimsonOn     = (s.level>=10 && s.level % CRIMSON_SPAWN_EVERY_LV===0);
+    const crimsonCount  = s.bots.filter(b=>b.outline==='#ff9b57').length;
+    const allowCrimson  = crimsonOn && (s.eliteThrottleT <= 0);
+    const yellowOnScreen= s.bots.filter(b=>b.elite && !b.boss && b.outline!=='#ff9b57').length;
+
+    if (allowCrimson && crimsonCount < CRIMSON_MAX_ONSCREEN(s.level)) {
+      spawnBot('crimson');
+    } else {
+      const roll = Math.random();
+      const baseChance   = Math.min(0.45, 0.05*s.level);
+      const yellowChance = baseChance * (s.eliteThrottleT>0 ? 0.5 : 1);
+      const canSpawnYellow = yellowOnScreen < (s.eliteThrottleT>0 ? 1 : 99);
+      if (canSpawnYellow && roll < yellowChance) spawnBot('yellow'); else spawnBot('normal');
     }
-    if (s.pendingBoss && !bossAlive){
+
+    // reset timer after a spawn
+    s.spawnTimer = spawnScaled;
+  } else {
+    // if capped, delay next attempt a bit so we don't try every frame
+    s.spawnTimer = 0.12;
+  }
+}
+
+// helpers that still run with no boss, but are NOT timer-gated
+if (!bossAlive && !s.pendingBoss) {
+  if (s.firstWaveRemaining > 0) {
+    s.firstWaveTimer -= dt;
+    if (s.firstWaveTimer <= 0) {
+      spawnBot('normal');
+      s.firstWaveRemaining--;
+      s.firstWaveTimer = s.firstWaveInterval;
+    }
+  }
+  if (s.score > 0 && s.score % 20 === 0 && s.lastEliteAtScore !== s.score) {
+    if (nonBossCount < cap) spawnBot('yellow');
+    s.lastEliteAtScore = s.score;
+  }
+}
+    if (s.pendingBoss && !bossAlive){ 
   // wipe non-bosses & non-player bullets, cue music, spawn boss
   s.bots    = s.bots.filter(b => b.boss);
   s.bullets = s.bullets.filter(b => b.owner === 'player');
@@ -561,11 +670,11 @@ p.muzzleT = 0.03; // shorter muzzle flash
 
     }
 
-    // AI + fire
+    // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ AI + fire
        s.bots.forEach(b=>{
   // still telegraphing: don't move/act yet
   if ((b.spawnT||0) > 0) { b.spawnT -= dt; return; }
-
+  if (b.boss) { s.lastBossPos.x = b.x; s.lastBossPos.y = b.y; }
   b.jitter = (b.jitter||0) + dt*2.2;
   const vx = p.x - b.x, vy = p.y - b.y;
   const d  = Math.hypot(vx,vy) || 1;
@@ -585,36 +694,90 @@ p.muzzleT = 0.03; // shorter muzzle flash
       const stepX=totalDx/steps, stepY=totalDy/steps;
       for(let i=0;i<steps;i++){ let tx=b.x+stepX, ty=b.y; if(!s.obstacles.some(o=>rectCircleOverlap(tx,b.y,b.r,o))) b.x=clamp(tx,MAP_MARGIN+b.r,W-MAP_MARGIN-b.r); ty=b.y+stepY; if(!s.obstacles.some(o=>rectCircleOverlap(b.x,ty,b.r,o))) b.y=clamp(ty,MAP_MARGIN+b.r,H-MAP_MARGIN+b.r); }
 
-      b.fireCooldown-=dt;
-      if(b.boss){
-        const hpFrac=Math.max(0,b.hp)/(b.maxHP||BOSS_HP_BASE);
-        if(!b.enraged && hpFrac<=0.5){
-          b.enraged=true; b.phase='burst'; b.phaseT=0; b.speed*=BOSS_SPEED_P2;
-          s.bullets = s.bullets.filter(pr=>pr.owner==='player');
-          s.banner={text:'BOSS ENRAGED!',t:0,dur:1.5};
-        }
-        b.dashCD -= dt;
-        if (b.enraged && b.dashCD <= 0 && !b.dashing) { b.dashTele = 0.9; b.dashing=false; b.dashCD = 6.5; }
-        if (b.dashTele > 0) { b.dashTele -= dt; if (b.dashTele <= 0) { const a=Math.atan2(p.y-b.y,p.x-b.x); b.dashing = true; b.dashT = 0.4; b.dashVX = Math.cos(a)*460; b.dashVY = Math.sin(a)*460; } }
-        if (b.dashing) { const t = Math.min(dt, b.dashT); b.dashT -= t; b.x = clamp(b.x + b.dashVX*t, MAP_MARGIN+b.r, W-MAP_MARGIN+b.r); b.y = clamp(b.y + b.dashVY*t, MAP_MARGIN+b.r, H-MAP_MARGIN+b.r); if (b.dashT <= 0) b.dashing = false; }
+      b.fireCooldown -= dt;
 
-        const rateMul= b.enraged ? BOSS_RATE_P2 : 1;
-        b.phaseT+=dt;
-        if(b.phase==='aim'){ if(b.fireCooldown<=0){ bossShootAimed(b); b.fireCooldown=0.35*rateMul; } if(b.phaseT>3){ b.phase='burst'; b.phaseT=0; } }
-        else if(b.phase==='burst'){ if(b.fireCooldown<=0){ b.enraged ? bossShootDoubleRing(b) : bossShootBurst(b); b.fireCooldown=b.enraged?0.7:1.0; } if(b.phaseT>3.2){ b.phase='spiral'; b.phaseT=0; } }
-        else { if(b.fireCooldown<=0){ bossShootSpiral(b); b.fireCooldown=0.06*rateMul; } if(b.phaseT>3){ b.phase='aim'; b.phaseT=0; } }
-      } else {
-        if(b.fireCooldown<=0){
-          if(b.ai==='straferBurst'){
-            const a0=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.12;
-            for(let k=0;k<3;k++){ const aa=a0 + (k-1)*0.06; const sp=380; s.bullets.push({x:b.x,y:b.y,vx:Math.cos(aa)*sp,vy:Math.sin(aa)*sp,r:3,owner:'bot',life:2}); }
-            b.fireCooldown=1.3;
-          } else {
-            const aa=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.18; const sp=360;
-            s.bullets.push({x:b.x,y:b.y,vx:Math.cos(aa)*sp,vy:Math.sin(aa)*sp,r:3,owner:'bot',life:2}); b.fireCooldown=b.shootEvery*Math.max(0.55,1-0.05*(s.level-1));
+if (b.boss) {
+  const isMini = !!b.miniBoss;
+
+  // enrage (same trigger), but only big boss gets the speed bump
+  const hpFrac = Math.max(0, b.hp) / (b.maxHP || BOSS_HP_BASE);
+  if (!b.enraged && hpFrac <= 0.5){
+    b.enraged = true; b.phase='burst'; b.phaseT=0;
+    if (!isMini) b.speed *= BOSS_SPEED_P2;
+    s.bullets = s.bullets.filter(pr=>pr.owner==='player');
+    s.banner={text:'BOSS ENRAGED!',t:0,dur:1.5};
+  }
+
+  // dash: keep for big boss only
+  if (!isMini){
+    b.dashCD -= dt;
+    if (b.enraged && b.dashCD <= 0 && !b.dashing) { b.dashTele = 0.9; b.dashing=false; b.dashCD = 6.5; }
+    if (b.dashTele > 0) { b.dashTele -= dt; if (b.dashTele <= 0) { const a=Math.atan2(p.y-b.y,p.x-b.x); b.dashing = true; b.dashT = 0.4; b.dashVX = Math.cos(a)*460; b.dashVY = Math.sin(a)*460; } }
+    if (b.dashing) { const t=Math.min(dt,b.dashT); b.dashT-=t; b.x=clamp(b.x+b.dashVX*t,MAP_MARGIN+b.r,W-MAP_MARGIN-b.r);b.y=clamp(b.y+b.dashVY*t,MAP_MARGIN+b.r,H-MAP_MARGIN-b.r);if(b.dashT<=0) b.dashing=false; }
+  }
+
+  // minis: slightly faster cadence, fewer bullets per pattern
+  const rateMul = (b.enraged ? BOSS_RATE_P2 : 1) * (isMini ? 0.9 : 1);
+  b.phaseT += dt;
+
+  if (b.phase==='aim'){
+    if (b.fireCooldown<=0){ bossShootAimed(b); b.fireCooldown = 0.35 * rateMul; }
+    if (b.phaseT>3){ b.phase='burst'; b.phaseT=0; }
+  }
+  else if (b.phase==='burst'){
+    if (b.fireCooldown<=0){
+      if (b.enraged){
+        if (isMini){
+          // mini double-ring (fewer bullets)
+          const N=12, base=s.time*0.8;
+          for(let k=0;k<2;k++){
+            const off=base+k*0.15;
+            for(let i=0;i<N;i++){
+              const a=off+i*(Math.PI*2/N), sp=400;
+              s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true});
+            }
           }
+        } else {
+          bossShootDoubleRing(b);
+        }
+      } else {
+        if (isMini){
+          // mini burst (fewer bullets)
+          const N=10, base=Math.random()*Math.PI*2;
+          for(let i=0;i<N;i++){
+            const a=base+i*(Math.PI*2/N), sp=420;
+            s.bullets.push({x:b.x,y:b.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3,owner:'bot',life:2,boss:true});
+          }
+        } else {
+          bossShootBurst(b);
         }
       }
+      b.fireCooldown = (b.enraged ? 0.7 : 1.0) * (isMini ? 0.85 : 1);
+    }
+    if (b.phaseT>3.2){ b.phase='spiral'; b.phaseT=0; }
+  }
+  else { // spiral
+    if (b.fireCooldown<=0){ bossShootSpiral(b); b.fireCooldown = 0.06 * rateMul; }
+    if (b.phaseT>3){ b.phase='aim'; b.phaseT=0; }
+  }
+
+} else {
+  // non-boss (unchanged)
+  if (b.fireCooldown<=0){
+    if (b.ai==='straferBurst'){
+      const a0=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.12;
+      for(let k=0;k<3;k++){ const aa=a0+(k-1)*0.06, sp=380;
+        s.bullets.push({x:b.x,y:b.y,vx:Math.cos(aa)*sp,vy:Math.sin(aa)*sp,r:3,owner:'bot',life:2});
+      }
+      b.fireCooldown=1.3;
+    } else {
+      const aa=Math.atan2(p.y-b.y,p.x-b.x)+(Math.random()-0.5)*0.18, sp=360;
+      s.bullets.push({x:b.x,y:b.y,vx:Math.cos(aa)*sp,vy:Math.sin(aa)*sp,r:3,owner:'bot',life:2});
+      b.fireCooldown=b.shootEvery*Math.max(0.55,1-0.05*(s.level-1));
+    }
+  }
+}
+
     });
 
     s.bullets.forEach(b=>{ b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt; });
@@ -622,37 +785,66 @@ p.muzzleT = 0.03; // shorter muzzle flash
 
     s.bullets.forEach(b=>{ if(b.owner==='bot' && Math.hypot(b.x-s.player.x,b.y-s.player.y)<b.r+s.player.r){ if(s.player.hitCooldown<=0){ applyDamage(BOT_BULLET_DMG*(b.boss?1.15:1)); } b.life=0; } });
 
-    s.bots=s.bots.filter(b=>{
-      let alive=true;
-      s.bullets.forEach(pr=>{
-        if(pr.owner==='player' && Math.hypot(b.x-pr.x,b.y-pr.y)<b.r+pr.r){
-          b.hp-=25; pr.life=0; spawnParticles(b.x,b.y,'#f33',10,2); SFX.hit(); s.shotsHit++;
-          if(pr.explosive){ spawnExplosion(pr.x,pr.y,1.1,'#ffa07a'); s.bots.forEach(bb=>{ const d=Math.hypot(bb.x-pr.x,bb.y-pr.y); if(d<70) bb.hp -= 22*(1-d/70); }); }
-          if(b.hp<=0){
+    s.bots = s.bots.filter(b=>{
+    let alive=true;
+     s.bullets.forEach(pr=>{
+    if (pr.owner==='player' && (b.spawnT||0)<=0 && Math.hypot(b.x-pr.x,b.y-pr.y)<b.r+pr.r) {
+       b.hp-=25; pr.life=0; spawnParticles(b.x,b.y,'#f33',10,2); SFX.hit(); s.shotsHit++;
+      if (pr.explosive) {
+        spawnExplosion(pr.x, pr.y, 1.1, '#ffa07a');
+        s.bots.forEach(bb => {
+          if ((bb.spawnT || 0) > 0) return; // invulnerable while telegraphing
+          const d = Math.hypot(bb.x - pr.x, bb.y - pr.y);
+          if (d < 70) bb.hp -= 22 * (1 - d / 70);
+        });
+      }
+
+      if (b.hp <= 0) {
+
             alive=false; const over=-b.hp; const extra=20+Math.min(40,Math.max(0,Math.round(over*1.2)));
             spawnParticles(b.x,b.y,b.boss?'#ff8888':(b.elite?'#ffd372':'#ff7b72'),extra,3); spawnExplosion(b.x,b.y,b.boss?1.8:(b.elite?1.2:1), b.boss?'#ff6666':'#ffb16b');
             if(over>30||b.boss) addShakeNow(b.boss?12:8,0.35);
             const base=b.boss?5:(b.elite?2:1); s.multT=Math.min(5,s.multT+1.25); s.mult=Math.min(5,1+Math.floor(s.multT)); s.score+=base*s.mult;
             s.dailyDone = Math.min(s.dailyGoal, s.dailyDone + 1);
             s.killsSinceShield++; if(s.killsSinceShield>=SHIELD_KILLS && s.shields<SHIELD_MAX){ s.killsSinceShield=0; s.shields++; s.shieldHP=s.shields*SHIELD_HP; spawnParticles(s.player.x,s.player.y,'#7cc0ff',28,3); }
-            if(b.boss){
-              // boss death rewards
-              spawnShardFromBoss(b); spawnShardFromBoss(b);
-              s.medkits.push({x:b.x,y:b.y,r:12,timeLeft:30,heal:60});
-              if(s.shields<SHIELD_MAX){ s.shields++; s.shieldHP=s.shields*SHIELD_HP; }
-              audio.boss?.pause(); startMainMusic();
-              s.spawnEase=0.4; s.spawnEaseT=12;
+            if (b.boss) {
+  // Split from the 3rd boss onward (do not split mini-bosses)
+  const shouldSplit = (!b.miniBoss) && (b.bossIndex >= 2); // bosses #2+ split
 
-              s.setpieces = [];           // clear old
-              spawnSetPiece(Math.random()<0.5 ? 'generator' : 'pod');
+  if (shouldSplit) {
+    // Spawn two mini-bosses at the death spot
+    spawnMiniBossesFrom(b);
+    // No rewards / biome / music yet — fight continues until ALL bosses are dead
+  } else {
+    // Only finish the boss flow if this was the LAST boss on screen
+    const anotherBossRemains = s.bots.some(bb => bb !== b && bb.boss);
+    if (!anotherBossRemains) {
+      // boss death rewards
+      spawnShardFromBoss(b); spawnShardFromBoss(b);
+      s.medkits.push({x:b.x,y:b.y,r:12,timeLeft:30,heal:60});
+      if(s.shields<SHIELD_MAX){ s.shields++; s.shieldHP=s.shields*SHIELD_HP; }
+      audio.boss?.pause(); startMainMusic();
+      s.spawnEase=0.4; s.spawnEaseT=12;
+      // tougher lull + elite throttle after 2nd boss (Lv 15 boss is #2)
+const which = (b.bossIndex || 1);
+if (which >= 2) {
+  s.spawnEase = 0.32;   // slower spawns right after boss
+  s.spawnEaseT = 14;    // a bit longer lull
+  s.eliteThrottleT = 70; // 70s with fewer elites / no crimson
+}
 
+      s.setpieces = [];           // clear old
+      spawnSetPiece(Math.random()<0.5 ? 'generator' : 'pod');
 
-              // rotate biome safely here
-              currentBiome = (currentBiome + 1) % BIOMES.length;
-              s.banner = { text: `${BIOMES[currentBiome].name}`, t: 0, dur: 1.5 };
-            } else {
-              maybeDropPowerup(b.x,b.y);
-            }
+      // rotate biome
+      currentBiome = (currentBiome + 1) % BIOMES.length;
+      s.banner = { text: `${BIOMES[currentBiome].name}`, t: 0, dur: 1.5 };
+    }
+  }
+} else {
+  maybeDropPowerup(b.x,b.y);
+}
+
             SFX.death(Math.min(1,over/50)); maybeLevelUp();
           }
         }
@@ -695,7 +887,30 @@ s.setpieces.forEach(sp=>{
 
     if(s.spawnEaseT>0){ s.spawnEaseT-=dt; s.spawnEase = clamp(s.spawnEase + dt*0.04, 0.4, 1); }
     s.explosions.forEach(ex=>ex.t+=dt); s.explosions=s.explosions.filter(ex=>ex.t<ex.dur);
-    s.particles.forEach(pt=>{ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.life-=dt; }); s.particles=s.particles.filter(pt=>pt.life>0);
+    s.particles.forEach(pt=>{ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.life-=dt; }); s.particles=s.particles.filter(pt=>pt.life>0); 
+
+// --- boss-phase failsafe: if no boss remains, finalize phase once
+if (audio.current === 'boss' && !s.bots.some(bb => bb.boss) && !s.pendingBoss) {
+  // rewards at last boss position
+  spawnShardFromBoss(s.lastBossPos);
+  spawnShardFromBoss(s.lastBossPos);
+  s.medkits.push({ x:s.lastBossPos.x, y:s.lastBossPos.y, r:12, timeLeft:30, heal:60 });
+  if (s.shields < SHIELD_MAX) { s.shields++; s.shieldHP = s.shields * SHIELD_HP; }
+
+  // music back to main
+  audio.boss?.pause();
+  startMainMusic();
+
+  // lull + elite throttle (heavier after boss #2+)
+  if (s.bossCount >= 2) { s.spawnEase = 0.32; s.spawnEaseT = 14; s.eliteThrottleT = 70; }
+  else { s.spawnEase = 0.40; s.spawnEaseT = 12; }
+
+  // new set piece + biome rotate
+  s.setpieces = [];
+  spawnSetPiece(Math.random()<0.5 ? 'generator' : 'pod');
+  currentBiome = (currentBiome + 1) % BIOMES.length;
+  s.banner = { text: `${BIOMES[currentBiome].name}`, t:0, dur:1.5 };
+}
 
     if(s.player.hp<=0){
       s.mode='gameover';
@@ -791,7 +1006,7 @@ function drawSetPiece(sp){
 }
 
 
-  // ------- Draw -------
+  // ------- Draw -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   function drawSoldier(x,y,ang,r,flash,lowHP){
     ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
     ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,r*0.9,r*0.9,r*0.4,0,0,Math.PI*2); ctx.fill();
@@ -858,7 +1073,7 @@ function drawSetPiece(sp){
 }
 
 
-// --- 8-bit bot renderer ---
+// ----------------------------------------------------------------------------------------------------------------------------------------------- 8-bit bot renderer 
 const PIXEL = {
   normal:{ body:'#64d26a', shade:'#2f8a38', eye:'#ffffff', outline:'#2a2a2a' },
   elite: { body:'#f0c420', shade:'#8a6d12', eye:'#111111', outline:'#2a2a2a' },
@@ -870,7 +1085,7 @@ function drawBot8bit(b){
   const kind = b.boss ? 'boss' : (b.outline==='#ff9b57' ? 'crimson' : (b.elite ? 'elite' : 'normal'));
   const pal = PIXEL[kind];
 
-  const s = Math.max(1, Math.floor((b.r*2)/12)); // pixel size
+  const s = Math.max(1, Math.floor((b.r*2)/12)); // ------------------------------------------------------------------------------------------------ pixel size
   const x0 = Math.round(b.x - 6*s), y0 = Math.round(b.y - 6*s);
 
   ctx.save();
@@ -919,7 +1134,7 @@ if (!b.boss) {
   ctx.stroke();
 }
 
-  // --- 8-bit CAT soldier (procedural, angle snapped to 16 steps) ---
+  // --- 8-bit CAT soldier (procedural, angle snapped to 16 steps) -------------------------------------------------------------------------------------------------------------------------------------------------------------
 function drawPlayerCat8bit(p, ang){
   // snap aim to keep pixels crisp
   const STEP = (Math.PI*2)/16;
@@ -1123,12 +1338,12 @@ s.bots.forEach(b=>{
   };
   }
 
-  // --- Poster-fit: keep the entire app always visible by scaling the whole shell ---
+  // --- Poster-fit: keep the entire app always visible by scaling the whole shell ------------------------------------------------------------------------------------------------------------------------------------------------------
 const STAGE_W = 220 + 22 + 1260 + 22 + 220; // left SB + gaps + canvas + gaps + right SB = 1744
 const STAGE_H = 780 + 18 + 18;               // canvas height + shell vertical padding = 816
 const shellEl = document.querySelector('.shell');
 
-const HEADROOM = 0.70; // tweak 0.90–0.98 to taste // --- SCREEN RATIO
+const HEADROOM = 0.70; // tweak 0.90–0.98 to taste // ---------------------------------------------------------------------------------------------- SCREEN RATIO
 
 function fitStage(){
   const vw = (window.visualViewport?.width ?? window.innerWidth);
