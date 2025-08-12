@@ -130,15 +130,14 @@ body{
     <canvas id="game" width="1260" height="780"></canvas>
   </main>
 
-  <!-------------------------------------------------------------------------------------------------------------------------------------------------------------- RIGHT: Global / Missions -->
+  <!-- RIGHT: Global / Missions -->
   <aside class="sidebar mono rightpanel" id="rightHUD">
     <div class="sb-title">Global & Missions</div>
     <div class="sb-card">
       <div class="title2">Leaderboards</div>
-      <div class="row"><span>All-Time (Local)</span><span id="globTop">—</span></div>
+      <div class="row"><span>All-Time (Global)</span><span id="globTop">—</span></div>
       <div class="row"><span>Your Best</span><span id="globYou">0</span></div>
       <div id="lbTop10" class="lb10 mono" style="margin-top:8px;"></div>
-      <div class="mini ticker" id="lbNote">Add Firebase later for world leaderboard.</div>
     </div>
     <div class="sb-card">
       <div class="title2">Daily Mission</div>
@@ -178,7 +177,9 @@ body{
 
 <script>
 (() => {
-  // ------- ---------------------------------------------------------------------------------------------------------------------------------------------------------- Config 
+  
+// ------- ---------------------------------------------------------------------------------------------------------------------------------------------------------- Config 
+
   const W=1260, H=780, MAP_MARGIN=12;
   const LEVEL_KILLS=30;
   const BOSS_LEVELS=[5,15,25,40,55,75,90,110,130,170,200,230,250];
@@ -217,7 +218,7 @@ body{
       btnRestart=document.getElementById('Restart'),
       btnHofClose=document.getElementById('hofClose');
 
-  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ Close Hall of Fame 
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------- Close Hall of Fame -------
    btnHofClose.addEventListener('click', () => {
    hof.style.display = 'none';
    startGame(); // restart the game immediately
@@ -315,7 +316,7 @@ body{
   function saveBoards(all,today){ try{ localStorage.setItem(LS_ALLTIME, JSON.stringify(all)); }catch{} try{ localStorage.setItem(LS_TODAY, JSON.stringify(today)); }catch{} }
   function qualifies(score,list,limit=10){ if(list.length<limit) return true; const min=list[list.length-1]?.score ?? -1; return score>min; }
 
-  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ Right panel Top‑10 render
+  // Right panel Top‑10 render
   function renderRightTop10(){
     if(!lbTop10) return;
     let all=[]; try{ all=JSON.parse(localStorage.getItem(LS_ALLTIME))||[]; }catch{}
@@ -453,6 +454,7 @@ function bossShootSpiral(b){
 
 
   // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Spawners 
+
   function spawnBot(kind='normal'){
   let boss = (kind==='boss');
   let elite = (kind==='yellow'||kind==='crimson');
@@ -475,7 +477,7 @@ function bossShootSpiral(b){
   if(kind==='yellow'){ hp=YELLOW_HP; dmgMul=1.2; shootEvery*=0.85; ai='strafer'; }
   if(kind==='crimson'){ hp=CRIMSON_HP_BASE; dmgMul=1.35; shootEvery=1.3; ai='straferBurst'; }
 
-  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ boss setup (fixed)
+  // boss setup (fixed)
   let whichBoss = 0;
   if (boss) {
     whichBoss = (s.bossCount || 0) + 1;             // 1-based boss order
@@ -583,7 +585,8 @@ function bossShootSpiral(b){
     // tick the spawn timer ONCE
 s.spawnTimer -= dt * s.spawnEase;
 
-// -----------------------------------------------------------------------------------------------------------------------only spawn when no boss AND the timer has elapsed
+// ----------------------------------------------------------------------------------------------------------------------- only spawn when no boss AND the timer has elapsed
+
 if (!bossAlive && !s.pendingBoss && s.spawnTimer <= 0) {
   if (nonBossCount < cap) {
     const spawnBase = Math.max(0.6, 1.7 - Math.min(60, s.score/5)*0.01);
@@ -670,7 +673,7 @@ p.muzzleT = 0.03; // shorter muzzle flash
 
     }
 
-    // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ AI + fire
+    // AI + fire
        s.bots.forEach(b=>{
   // still telegraphing: don't move/act yet
   if ((b.spawnT||0) > 0) { b.spawnT -= dt; return; }
@@ -889,7 +892,8 @@ s.setpieces.forEach(sp=>{
     s.explosions.forEach(ex=>ex.t+=dt); s.explosions=s.explosions.filter(ex=>ex.t<ex.dur);
     s.particles.forEach(pt=>{ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.life-=dt; }); s.particles=s.particles.filter(pt=>pt.life>0); 
 
-// --- boss-phase failsafe: if no boss remains, finalize phase once
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------- boss-phase failsafe: if no boss remains, finalize phase once
+
 if (audio.current === 'boss' && !s.bots.some(bb => bb.boss) && !s.pendingBoss) {
   // rewards at last boss position
   spawnShardFromBoss(s.lastBossPos);
@@ -1006,7 +1010,8 @@ function drawSetPiece(sp){
 }
 
 
-  // ------- Draw -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  // -------------------------------------------------------------------------------------------------------------------------------------------------------------------- Draw 
+
   function drawSoldier(x,y,ang,r,flash,lowHP){
     ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
     ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,r*0.9,r*0.9,r*0.4,0,0,Math.PI*2); ctx.fill();
@@ -1134,7 +1139,7 @@ if (!b.boss) {
   ctx.stroke();
 }
 
-  // --- 8-bit CAT soldier (procedural, angle snapped to 16 steps) -------------------------------------------------------------------------------------------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------------------------------------------------------------------------------------------- 8-bit CAT soldier (procedural, angle snapped to 16 steps) 
 function drawPlayerCat8bit(p, ang){
   // snap aim to keep pixels crisp
   const STEP = (Math.PI*2)/16;
@@ -1242,12 +1247,15 @@ const y0 = Math.round(p.y - 6*sPX);
 
 
   function draw(){
-    // Clear/paint background with identity transform (fixes edge artifacts)
+    // ----------------------------------------------------------------------------------------------------------------------------------------- Clear/paint background with identity transform (fixes edge artifacts)
+
     ctx.setTransform(1,0,0,1,0,0);
     ctx.fillStyle=s.groundPattern||'#0b1220';
     ctx.fillRect(0,0,W,H);
 
-    // Now apply shake and draw the world
+    // ----------------------------------------------------------------------------------------------------------------------------------------- Now apply shake and draw the world
+
+
     ctx.save();
     if((s.shakeT||0)>0){ s.shakeT-=s.dt; const m=(s.shakeMag||0)*Math.max(0,s.shakeT); ctx.translate((Math.random()*2-1)*m,(Math.random()*2-1)*m); }
 
@@ -1255,18 +1263,22 @@ const y0 = Math.round(p.y - 6*sPX);
     if(low){ const pulse=(Math.sin(s.time*10)+1)/2; ctx.strokeStyle=`rgba(255,70,70,${0.2+0.6*pulse})`; ctx.lineWidth=4; ctx.strokeRect(MAP_MARGIN-2,MAP_MARGIN-2,W-2*MAP_MARGIN+4,H-2*MAP_MARGIN+4); }
     ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1; ctx.strokeRect(MAP_MARGIN,MAP_MARGIN,W-2*MAP_MARGIN,H-2*MAP_MARGIN);
 
-    // biome tint overlay (over ground, under objects)
+    // ----------------------------------------------------------------------------------------------------------------------------------------- biome tint overlay (over ground, under objects)
+
     ctx.fillStyle = BIOMES[currentBiome].tint;
     ctx.fillRect(MAP_MARGIN, MAP_MARGIN, W - 2*MAP_MARGIN, H - 2*MAP_MARGIN);
 
-    // obstacles
+    // ----------------------------------------------------------------------------------------------------------------------------------------- obstacles
+
     s.obstacles.forEach(o=>drawObstacle(o, s.obstacleAlpha));
 
-    // set pieces
+    // ----------------------------------------------------------------------------------------------------------------------------------------- set pieces
+
     s.setpieces.forEach(drawSetPiece);
 
 
-    // pickups
+    // ----------------------------------------------------------------------------------------------------------------------------------------- pickups
+
     s.medkits.forEach(m=>{ const blink=m.timeLeft<5?(Math.floor(m.timeLeft*10)%2===0):true; if(!blink) return; const r=m.r;
       if(m.power){ ctx.fillStyle='#c8f7ff'; ctx.beginPath(); ctx.arc(m.x,m.y,r,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#0ea5e9'; ctx.font='10px ui-sans-serif'; ctx.textAlign='center'; ctx.fillText(m.power[0].toUpperCase(), m.x, m.y+3); ctx.textAlign='start'; }
       else { ctx.fillStyle='#e5f7ff'; ctx.fillRect(m.x-r,m.y-r,r*2,r*2); ctx.strokeStyle='#94a3b8'; ctx.strokeRect(m.x-r+0.5,m.y-r+0.5,r*2-1,r*2-1); ctx.fillStyle='#e11d48'; ctx.fillRect(m.x-r*0.25,m.y-r*0.8,r*0.5,r*1.6); ctx.fillRect(m.x-r*0.8,m.y-r*0.25,r*1.6,r*0.5); }
@@ -1301,7 +1313,8 @@ s.bots.forEach(b=>{
     if(s.mode==='intro'){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; const t=s.time; const a=Math.min(1,t/0.5)*(t<1.2?1:Math.max(0,2-t)); ctx.globalAlpha=a; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText('Press Start', W/10, H/6-10); ctx.globalAlpha=Math.max(0,a*0.8); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('', W/2, H/2+22); ctx.globalAlpha=1; } else if(s.mode==='countdown'){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText(String(Math.max(1,Math.ceil(s.countdown))), W/2, H/2); }
   }
 
-  // ------- Hall of Fame (local names) -------
+  // -------------------------------------------------------------------------------------------------------------------------------------------------------- Hall of Fame (local names) 
+
   function renderBoards(all, today){
     boardToday.innerHTML = today.slice(0,8).map((e,i)=>`<div class="line"><span>${String(i+1).padStart(2,'0')}</span><span>${e.name.padEnd(10,' ')} ${String(e.score).padStart(6,' ')}</span></div>`).join('');
     boardAll.innerHTML   = all.slice(0,10).map((e,i)=>`<div class="line"><span>${String(i+1).padStart(2,'0')}</span><span>${e.name.padEnd(10,' ')} ${String(e.score).padStart(6,' ')}</span></div>`).join('');
@@ -1309,39 +1322,70 @@ s.bots.forEach(b=>{
   }
 
   function updateHallOfFame(){
-    const acc = s.shotsFired>0 ? Math.round(100*s.shotsHit/s.shotsFired) : 0;
-    hofSummary.textContent=`Score ${s.score} · Level ${s.level} · Accuracy ${acc}%`;
+  const acc = s.shotsFired>0 ? Math.round(100*s.shotsHit/s.shotsFired) : 0;
+  hofSummary.textContent=`Score ${s.score} · Level ${s.level} · Accuracy ${acc}%`;
 
-    const { all, today } = loadBoards();
-    try { nameInput.value = localStorage.getItem(LS_NAME) || 'Anon'; } catch { nameInput.value='Anon'; }
-    renderBoards(all, today);
+  const { all, today } = loadBoards();
+  try { nameInput.value = localStorage.getItem(LS_NAME) || 'Anon'; } catch { nameInput.value='Anon'; }
+  renderBoards(all, today);
 
-    const canSave = qualifies(s.score, all, 10) || qualifies(s.score, today, 8);
-    saveBtn.disabled = !canSave;
-    saveNote.textContent = canSave ? "Top 10 lists are stored locally in your browser." : "This run didn’t reach Top 10. You can still restart.";
+  const canSave = qualifies(s.score, all, 10) || qualifies(s.score, today, 8);
+  saveBtn.disabled = !canSave;
+  saveNote.textContent = canSave
+    ? "Top 10 eligible. Saves are stored locally; if online is configured, we’ll also post to Firebase."
+    : "This run didn’t reach Top 10. You can still restart.";
 
-    saveBtn.onclick = () => {
-  const name = sanitizeName(nameInput.value);
-  try { localStorage.setItem(LS_NAME, name); } catch {}
-  const entry = { name, score:s.score, level:s.level, accuracy:acc, ts:Date.now() };
-  const t2 = [...today, entry].sort((a,b)=>b.score-a.score).slice(0,8);
-  const a2 = [...all, entry].sort((a,b)=>b.score-a.score).slice(0,10);
-  saveBoards(a2, t2);
-  renderBoards(a2, t2);
-  renderRightTop10();
-  saveBtn.disabled = true;
-  saveNote.textContent = "Saved locally ✔";
+  saveBtn.onclick = async () => {
+    const name = sanitizeName(nameInput.value);
+    try { localStorage.setItem(LS_NAME, name); } catch {}
 
-  // hide popup and jump back into the game
-  hof.style.display = 'none';
-  startGame();
+    // --- Local boards (keep existing behavior)
+    const entry = { name, score:s.score, level:s.level, accuracy:acc, ts:Date.now() };
+    const t2 = [...today, entry].sort((a,b)=>b.score-a.score).slice(0,8);
+    const a2 = [...all, entry].sort((a,b)=>b.score-a.score).slice(0,10);
+    saveBoards(a2, t2);
+    renderBoards(a2, t2);
+    renderRightTop10();
+
+    // --- Feedback while saving online
+    saveBtn.disabled = true;
+    const prevLabel = saveBtn.textContent;
+    saveBtn.textContent = "Saving…";
+
+    // -------------------------------------------------------------------------------------------------------------------------------------------- Online submit (if Firebase module is present)
+    try {
+      if (window.mtSubmitScore) {
+        await window.mtSubmitScore({
+          score: s.score,
+          level: s.level,
+          accuracy: acc,
+          name
+        });
+        await window.mtLoadGlobalTop?.(); // refresh right panel from Firebase
+        saveNote.textContent = "Saved locally + online ✔";
+      } else {
+        saveNote.textContent = "Saved locally ✔ (Firebase not detected)";
+      }
+    } catch (e) {
+      console.warn("Firebase submit failed:", e);
+      saveNote.textContent = "Saved locally. Online submit failed.";
+    } finally {
+      saveBtn.textContent = prevLabel || "Save to local board";
+    }
+
+    // Hide popup and restart game
+    hof.style.display = 'none';
+    startGame();
   };
-  }
+}
 
-  // --- Poster-fit: keep the entire app always visible by scaling the whole shell ------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  // ----------------------------------------------------------------------------------------------------------------------------------------- Poster-fit: keep the entire app always visible by scaling the whole shell
+ 
 const STAGE_W = 220 + 22 + 1260 + 22 + 220; // left SB + gaps + canvas + gaps + right SB = 1744
 const STAGE_H = 780 + 18 + 18;               // canvas height + shell vertical padding = 816
 const shellEl = document.querySelector('.shell');
+
 
 const HEADROOM = 0.70; // tweak 0.90–0.98 to taste // ---------------------------------------------------------------------------------------------- SCREEN RATIO
 
@@ -1360,7 +1404,8 @@ window.visualViewport?.addEventListener('resize', fitStage);
 fitStage();
 
 
-  /* ------- Input / Loop ------- */
+  /* -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Input / Loop ------- */
+
   function toLocal(e){ const r=cvs.getBoundingClientRect(); s.mouse.x=(e.clientX-r.left)*(W/r.width); s.mouse.y=(e.clientY-r.top)*(H/r.height); }
 
   // mouse: no more click-to-restart
@@ -1393,5 +1438,112 @@ fitStage();
 
 })();
 </script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+import { getFirestore, collection, doc, writeBatch, serverTimestamp,
+         query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Your Firebase config 
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAVfk3W8h9dhJrLDd04TMFRfKWjeMGZRTc",
+  authDomain: "matatudo-leaderboard.firebaseapp.com",
+  projectId: "matatudo-leaderboard",
+  storageBucket: "matatudo-leaderboard.appspot.com",
+  messagingSenderId: "449727510581",
+  appId: "1:449727510581:web:f590b9b90f21f59fc2d97c"
+};
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Init + anon auth
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// --- status indicator in UI + console ---
+const lbNote = document.getElementById("lbNote");
+if (lbNote) lbNote.textContent = "Connecting to online leaderboard…";
+console.log("[Firebase] init", app.options.projectId);
+
+signInAnonymously(auth).catch(console.warn);
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Render helpers (uses your existing DOM ids)
+
+function renderTop10(rows) {
+  const lb = document.getElementById("lbTop10");
+  const best = rows[0]?.score ?? "—";
+  const html = rows.slice(0,10).map((r,i) => {
+    const rank = String(i+1).padStart(2,'0');
+    const name = (r.name || 'Anon').toString();
+    const score = r.score|0;
+    return `<div class="line"><span>${rank} <span class="name">${name}</span></span><span class="score">${score}</span></div>`;
+  }).join('') || `<div class="mini" style="opacity:.7">No scores yet.</div>`;
+  document.getElementById("globTop").textContent = best;
+  if (lb) lb.innerHTML = html;
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Public: load global leaderboard into the right panel 
+
+async function loadGlobalTop() {
+  try {
+    const qy = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
+    const snap = await getDocs(qy);
+    const rows = [];
+    snap.forEach(d => rows.push(d.data()));
+    renderTop10(rows);
+    if (lbNote) lbNote.textContent = `Online: loaded ${rows.length} scores ✓`;
+  } catch (e) {
+    if (lbNote) lbNote.textContent = "Online: failed to load scores";
+    console.warn("loadGlobalTop failed:", e);
+  }
+}
+window.mtLoadGlobalTop = loadGlobalTop;
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------- Public: submit score (called from your HOF save handler)
+
+async function submitScore({ score, level, accuracy, name = "Anon" }) {
+  const user = auth.currentUser;
+  if (!user) return;
+  const uid = user.uid;
+
+  const batch = writeBatch(db);
+  const usersRef = doc(db, "users", uid);
+  const scoreRef = doc(collection(db, "scores"));
+
+  batch.set(usersRef, { lastSubmit: serverTimestamp() }, { merge: true });
+  batch.set(scoreRef, { uid, name, score, level, accuracy, ts: serverTimestamp() });
+
+  await batch.commit();
+}
+window.mtSubmitScore = submitScore;
+
+window.mtTestWrite = async function () {
+  try {
+    const n = Math.floor(Math.random()*900) + 100;   // 100–999
+    await submitScore({ score: n, level: 1, accuracy: 0, name: "TEST" });
+    console.log("[Firebase] test write OK, score:", n);
+    if (lbNote) lbNote.textContent = "Online: test write ✓ — check Firestore/scores";
+    await loadGlobalTop();
+  } catch (e) {
+    console.warn("[Firebase] test write FAILED:", e);
+    if (lbNote) lbNote.textContent = "Online: test write failed (see console)";
+  }
+};
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------- Auto-load once auth is ready
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    console.log("[Firebase] signed in (anon) uid:", user.uid);
+    if (lbNote) lbNote.textContent = "Online: signed in ✓";
+    loadGlobalTop();
+  } else {
+    console.warn("[Firebase] not signed in");
+    if (lbNote) lbNote.textContent = "Online: not signed in";
+  }
+});</script>
+
 </body>
 </html>
