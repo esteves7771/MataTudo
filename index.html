@@ -218,7 +218,7 @@ body{
       btnRestart=document.getElementById('Restart'),
       btnHofClose=document.getElementById('hofClose');
 
-  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------- Close Hall of Fame -------
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------- Close Hall of Fame 
    btnHofClose.addEventListener('click', () => {
    hof.style.display = 'none';
    startGame(); // restart the game immediately
@@ -288,7 +288,8 @@ body{
   try{ const saved=localStorage.getItem('matatudo_best'); if(saved) s.bestScore=parseInt(saved,10)||0; }catch{}
   globYou.textContent = s.bestScore;
 
-  // Ground pattern
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Ground pattern
+
   ;(function(){ const pc=document.createElement('canvas'); pc.width=64; pc.height=64; const pg=pc.getContext('2d'); pg.fillStyle='#27303a'; pg.fillRect(0,0,64,64);
     for(let i=0;i<160;i++){ pg.fillStyle=`rgba(255,255,255,${0.06+Math.random()*0.06})`; pg.fillRect(Math.random()*64,Math.random()*64,1,1); }
     pg.strokeStyle='rgba(0,0,0,0.12)'; for(let x=0;x<=64;x+=16){ pg.beginPath(); pg.moveTo(x,0); pg.lineTo(x,64); pg.stroke(); }
@@ -316,7 +317,8 @@ body{
   function saveBoards(all,today){ try{ localStorage.setItem(LS_ALLTIME, JSON.stringify(all)); }catch{} try{ localStorage.setItem(LS_TODAY, JSON.stringify(today)); }catch{} }
   function qualifies(score,list,limit=10){ if(list.length<limit) return true; const min=list[list.length-1]?.score ?? -1; return score>min; }
 
-  // Right panel Top‑10 render
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Right panel Top‑10 render
+
   function renderRightTop10(){
     if(!lbTop10) return;
     let all=[]; try{ all=JSON.parse(localStorage.getItem(LS_ALLTIME))||[]; }catch{}
@@ -363,15 +365,18 @@ body{
     return doors.every(d=>seen[d.gy][d.gx]===true);
   }
   function randomObstaclesNavigable(){
-    const ents=[{x:s.player.x,y:s.player.y,r:80}].concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r+24})));
-    for(let tries=0;tries<40;tries++){
-      const obs=generateCandidateObstacles(ents);
+   const ents = [{x:s.player.x,y:s.player.y,r:80}]
+     .concat(s.bots.map(b=>({x:b.x,y:b.y,r:b.r+24})))
+     .concat(s.medkits.map(m=>({x:m.x,y:m.y,r:(m.r||10)+20})))
+     .concat(s.setpieces.map(sp=>({x:sp.x,y:sp.y,r:(sp.r||18)+20})));
+   for (let tries=0; tries<40; tries++){
+      const obs = generateCandidateObstacles(ents);
       const coversPlayer = obs.some(o=>rectCircleOverlap(s.player.x,s.player.y,s.player.r+14,o));
-      if(coversPlayer) continue;
-      if(doorsReachable(obs,s.player.x,s.player.y)) return obs;
-    }
-    return null;
+     if (coversPlayer) continue;
+    if (doorsReachable(obs,s.player.x,s.player.y)) return obs;
   }
+  return null;
+}
   function triggerObstacleSwap(){ s.obstaclePhase='fadeOut'; s.obstacleFadeT=0; }
   function updateObstacleFade(dt){
     if(s.obstaclePhase==='stable') return;
@@ -380,7 +385,7 @@ body{
       s.obstacleAlpha=1-t;
       if(s.obstacleFadeT>=DUR){
         const newObs=randomObstaclesNavigable();
-        if(newObs){ s.obstacles=newObs; s.obstaclePhase='fadeIn'; s.obstacleFadeT=0; }
+        if(newObs){ s.obstacles=newObs; nudgeOrDespawnPickups(); s.obstaclePhase='fadeIn'; s.obstacleFadeT=0; }
         else { s.obstaclePhase='stable'; s.obstacleAlpha=1; }
       }
     } else {
@@ -388,6 +393,24 @@ body{
       if(s.obstacleFadeT>=DUR){ s.obstaclePhase='stable'; s.obstacleAlpha=1; }
     }
   }
+
+function freeCircle(x,y,r){
+  return !s.obstacles.some(o => rectCircleOverlap(x,y,r,o));
+}
+
+function nudgeOrDespawnPickups(){
+  const tryRelocate = (obj, r) => {
+    for (let i=0; i<80; i++){
+      const x = MAP_MARGIN+r + Math.random()*(W-2*(MAP_MARGIN+r));
+      const y = MAP_MARGIN+r + Math.random()*(H-2*(MAP_MARGIN+r));
+      if (Math.hypot(x-s.player.x, y-s.player.y) < 90) continue;
+      if (freeCircle(x,y,r+8)) { obj.x=x; obj.y=y; return true; }
+    }
+    return false;
+  };
+  s.medkits   = s.medkits.filter(m  => freeCircle(m.x,m.y,(m.r||10)+2) || tryRelocate(m,  m.r||10));
+  s.setpieces = s.setpieces.filter(sp => freeCircle(sp.x,sp.y,(sp.r||18)+2) || tryRelocate(sp, sp.r||18));
+}
 
   // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ FX 
 
@@ -673,7 +696,7 @@ p.muzzleT = 0.03; // shorter muzzle flash
 
     }
 
-    // AI + fire
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- AI + fire
        s.bots.forEach(b=>{
   // still telegraphing: don't move/act yet
   if ((b.spawnT||0) > 0) { b.spawnT -= dt; return; }
@@ -719,7 +742,7 @@ if (b.boss) {
     if (b.dashing) { const t=Math.min(dt,b.dashT); b.dashT-=t; b.x=clamp(b.x+b.dashVX*t,MAP_MARGIN+b.r,W-MAP_MARGIN-b.r);b.y=clamp(b.y+b.dashVY*t,MAP_MARGIN+b.r,H-MAP_MARGIN-b.r);if(b.dashT<=0) b.dashing=false; }
   }
 
-  // minis: slightly faster cadence, fewer bullets per pattern
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- minis: slightly faster cadence, fewer bullets per pattern
   const rateMul = (b.enraged ? BOSS_RATE_P2 : 1) * (isMini ? 0.9 : 1);
   b.phaseT += dt;
 
@@ -869,7 +892,8 @@ if (which >= 2) {
       return true;
     });
 
-    // --- set pieces capture logic
+    // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- set pieces capture logic
+
 s.setpieces.forEach(sp=>{
   if (sp.done) return;
   const d = Math.hypot(sp.x - s.player.x, sp.y - s.player.y);
@@ -901,15 +925,18 @@ if (audio.current === 'boss' && !s.bots.some(bb => bb.boss) && !s.pendingBoss) {
   s.medkits.push({ x:s.lastBossPos.x, y:s.lastBossPos.y, r:12, timeLeft:30, heal:60 });
   if (s.shields < SHIELD_MAX) { s.shields++; s.shieldHP = s.shields * SHIELD_HP; }
 
-  // music back to main
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- music back to main
+  
   audio.boss?.pause();
   startMainMusic();
 
-  // lull + elite throttle (heavier after boss #2+)
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- lull + elite throttle (heavier after boss #2+)
+  
   if (s.bossCount >= 2) { s.spawnEase = 0.32; s.spawnEaseT = 14; s.eliteThrottleT = 70; }
   else { s.spawnEase = 0.40; s.spawnEaseT = 12; }
 
-  // new set piece + biome rotate
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- new set piece + biome rotate
+  
   s.setpieces = [];
   spawnSetPiece(Math.random()<0.5 ? 'generator' : 'pod');
   currentBiome = (currentBiome + 1) % BIOMES.length;
@@ -956,7 +983,7 @@ if (audio.current === 'boss' && !s.bots.some(bb => bb.boss) && !s.pendingBoss) {
   ctx.strokeStyle = b.boss ? '#ff9b9b' : '#9ac8ff';
   ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI*2); ctx.stroke();
   ctx.setLineDash([]);
-  // little inward arrow
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- little inward arrow
   const ux = (s.player.x - b.x), uy = (s.player.y - b.y);
   const d  = Math.hypot(ux,uy)||1; const ax = b.x + (ux/d)*(r+10), ay = b.y + (uy/d)*(r+10);
   ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax - (ux/d)*10, ay - (uy/d)*10); ctx.stroke();
@@ -964,7 +991,7 @@ if (audio.current === 'boss' && !s.bots.some(bb => bb.boss) && !s.pendingBoss) {
 }
 
   function spawnSetPiece(type){
-  // pick a free spot, like medkits
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- pick a free spot, like medkits
   for(let tries=0; tries<120; tries++){
     const r=18;
     const x=MAP_MARGIN+r+Math.random()*(W-2*(MAP_MARGIN+r));
@@ -978,28 +1005,28 @@ if (audio.current === 'boss' && !s.bots.some(bb => bb.boss) && !s.pendingBoss) {
 
 function drawSetPiece(sp){
   ctx.save();
-  // base plate
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- base plate
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath(); ctx.ellipse(sp.x,sp.y+sp.r*0.6, sp.r*0.9, sp.r*0.35, 0,0,Math.PI*2); ctx.fill();
 
   const biome = BIOMES[currentBiome].style;
   if (sp.type==='generator'){
-    // universal generator look
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- universal generator look
     ctx.fillStyle = (biome==='neon') ? '#673ab7' : (biome==='jungle' ? '#3b6b4a' : '#6b6b6b');
     ctx.fillRect(sp.x-14, sp.y-10, 28, 20);
     ctx.fillStyle = '#222'; ctx.fillRect(sp.x-8, sp.y-6, 16, 12);
-    // pulse light
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- pulse light
     const a = 0.4 + 0.6*Math.abs(Math.sin(s.time*3));
     ctx.fillStyle = `rgba(130,220,255,${a})`;
     ctx.fillRect(sp.x-4, sp.y-2, 8, 4);
   } else {
-    // crashed pod
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- crashed pod
     ctx.fillStyle = (biome==='neon') ? '#00e5ff' : '#9bb8cc';
     ctx.beginPath(); ctx.ellipse(sp.x, sp.y, 16, 10, 0.3, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = '#233'; ctx.stroke();
   }
 
-  // capture ring/progress
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- capture ring/progress
   if (!sp.done){
     ctx.strokeStyle = '#a7f3d0';
     ctx.lineWidth   = 2;
@@ -1033,13 +1060,16 @@ function drawSetPiece(sp){
   ctx.globalAlpha = a;
   const biome = BIOMES[currentBiome].style;
 
-  // base block
+  
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- base block
+
   ctx.fillStyle = BIOMES[currentBiome].obsColor;
   ctx.fillRect(o.x,o.y,o.w,o.h);
 
-  // inner style
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- inner style
+
   if (biome==='factory'){
-    // metal plates + bolts + hatch lines
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- metal plates + bolts + hatch lines
     ctx.fillStyle = 'rgba(0,0,0,0.22)';
     for(let y=o.y+8; y<o.y+o.h-8; y+=18){ ctx.fillRect(o.x+6, y, o.w-12, 2); }
     ctx.fillStyle = '#777';
@@ -1049,7 +1079,7 @@ function drawSetPiece(sp){
       }
     }
   } else if (biome==='jungle'){
-    // mossy edges + vines
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- mossy edges + vines
     const g = ctx.createLinearGradient(o.x,o.y,o.x,o.y+o.h);
     g.addColorStop(0,'rgba(30,60,30,0.35)');
     g.addColorStop(1,'rgba(30,60,30,0.05)');
@@ -1060,7 +1090,8 @@ function drawSetPiece(sp){
       ctx.fillRect(vx, o.y, 2, 8 + Math.random()*Math.min(22,o.h-16));
     }
   } else { // neon
-    // neon frame + “windows”
+    // -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------  neon frame + “windows”
+    
     ctx.strokeStyle = 'rgba(255,120,255,0.45)';
     ctx.lineWidth = 2; ctx.strokeRect(o.x+1.5,o.y+1.5,o.w-3,o.h-3);
     ctx.fillStyle = 'rgba(200,200,255,0.06)';
@@ -1071,7 +1102,7 @@ function drawSetPiece(sp){
     }
   }
 
-  // soft border
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- soft border
   ctx.strokeStyle='rgba(0,0,0,0.25)';
   ctx.strokeRect(o.x+0.5,o.y+0.5,o.w-1,o.h-1);
   ctx.restore();
@@ -1096,11 +1127,13 @@ function drawBot8bit(b){
   ctx.save();
   ctx.imageSmoothingEnabled = false;
 
-  // shadow
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- shadow
+
   ctx.fillStyle='rgba(0,0,0,0.25)';
   ctx.beginPath(); ctx.ellipse(b.x, b.y + 0.7*b.r, 0.9*b.r, 0.35*b.r, 0, 0, Math.PI*2); ctx.fill();
 
-  // outline: square for regulars, circular ring for boss
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- outline: square for regulars, circular ring for boss
+
 if (!b.boss) {
   ctx.fillStyle = pal.outline;
   ctx.fillRect(x0, y0, 12*s, 12*s);
@@ -1112,25 +1145,27 @@ if (!b.boss) {
   ctx.stroke();
 }
 
-  // torso
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- torso
   ctx.fillStyle = pal.body;               ctx.fillRect(x0+1*s, y0+2*s, 10*s, 7*s);
-  // helmet/crest
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- helmet/crest
   ctx.fillStyle = pal.shade;              ctx.fillRect(x0+3*s, y0+1*s, 6*s, 1*s);
-  // arms
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- arms
   ctx.fillStyle = pal.shade;              ctx.fillRect(x0+0*s, y0+3*s, 1*s, 4*s);
   ctx.fillRect(x0+11*s, y0+3*s, 1*s, 4*s);
-  // legs
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- legs
   ctx.fillRect(x0+3*s, y0+9*s, 2*s, 3*s);
   ctx.fillRect(x0+7*s, y0+9*s, 2*s, 3*s);
-  // eyes
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- eyes
   ctx.fillStyle = pal.eye;                ctx.fillRect(x0+3*s, y0+4*s, 2*s, 2*s);
   ctx.fillRect(x0+7*s, y0+4*s, 2*s, 2*s);
-  // tiny gun accent for non-normal
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- tiny gun accent for non-normal
+  
   if(kind!=='normal'){ ctx.fillRect(x0+9*s, y0+6*s, 2*s, 1*s); }
 
   ctx.restore();
 
-  // HP arc (unchanged)
+  //----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- HP arc (unchanged)
+  
   ctx.strokeStyle='rgba(255,255,255,0.6)';
   ctx.lineWidth=2;
   ctx.beginPath();
@@ -1140,12 +1175,14 @@ if (!b.boss) {
 }
 
   // ---------------------------------------------------------------------------------------------------------------------------------------------------------------- 8-bit CAT soldier (procedural, angle snapped to 16 steps) 
+
 function drawPlayerCat8bit(p, ang){
-  // snap aim to keep pixels crisp
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- snap aim to keep pixels crisp
+  
   const STEP = (Math.PI*2)/16;
   const qa = Math.round(ang/STEP)*STEP;
 
-  const CAT_SCALE = 1.22; // ~18% bigger visuals, hitbox unchanged
+  const CAT_SCALE = 1.22; // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- ~18% bigger visuals, hitbox unchanged
 const sPX = Math.max(1, Math.round((p.r*2*CAT_SCALE)/12));
 const size = 12*sPX;
 const x0 = Math.round(p.x - 6*sPX);
@@ -1154,46 +1191,54 @@ const y0 = Math.round(p.y - 6*sPX);
   ctx.save();
   ctx.imageSmoothingEnabled = false;
 
-  // shadow
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- shadow
+
   ctx.fillStyle='rgba(0,0,0,0.25)';
   ctx.beginPath();
   ctx.ellipse(p.x, p.y + 0.7*p.r, 0.9*p.r, 0.35*p.r, 0, 0, Math.PI*2);
   ctx.fill();
 
-  // outline box
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- outline box
   
 
-  // torso / armor
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- torso / armor
+
   ctx.fillStyle = '#8aa0ff';
   ctx.fillRect(x0+2*sPX, y0+3*sPX, 8*sPX, 6*sPX);
 
-  // helmet + brim
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- helmet + brim
+
   ctx.fillStyle = '#5d74e6';
   ctx.fillRect(x0+3*sPX, y0+2*sPX, 6*sPX, 2*sPX);
   ctx.fillRect(x0+4*sPX, y0+1*sPX, 4*sPX, 1*sPX);
 
-  // cat ears (through helmet)
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- cat ears (through helmet)
+
   ctx.fillStyle = '#c8d1ff';
   ctx.fillRect(x0+3*sPX, y0+0*sPX, 2*sPX, 1*sPX);
   ctx.fillRect(x0+7*sPX, y0+0*sPX, 2*sPX, 1*sPX);
 
-  // arms
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- arms
+
   ctx.fillStyle = '#4354a5';
   ctx.fillRect(x0+1*sPX, y0+5*sPX, 2*sPX, 2*sPX);
   ctx.fillRect(x0+9*sPX, y0+5*sPX, 2*sPX, 2*sPX);
 
-  // legs
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- legs
+
   ctx.fillRect(x0+3*sPX, y0+9*sPX, 2*sPX, 2*sPX);
   ctx.fillRect(x0+7*sPX, y0+9*sPX, 2*sPX, 2*sPX);
 
-  // eyes (nudge toward aim)
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- eyes (nudge toward aim)
+
   const eyeShift = (Math.abs(Math.cos(qa))>0.5) ? sPX : 0;
   const ex = (Math.cos(qa)>0?1:-1)*eyeShift;
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(x0+3*sPX+ex, y0+4*sPX, 2*sPX, 2*sPX);
   ctx.fillRect(x0+7*sPX+ex, y0+4*sPX, 2*sPX, 2*sPX);
 
-  // tail: opposite aim with tiny wobble
+  // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- tail: opposite aim with tiny wobble
+
   const opp = qa + Math.PI;
   const dx = Math.round(Math.cos(opp));
   const dy = Math.round(Math.sin(opp));
@@ -1205,7 +1250,8 @@ const y0 = Math.round(p.y - 6*sPX);
     ctx.fillRect(ax + (dx*i + wobble)*sPX, ay + (dy*i)*sPX, 1*sPX, 1*sPX);
   }
 
-  // gun along quantized aim
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- gun along quantized aim
+  
   const gx0 = x0 + 6*sPX, gy0 = y0 + 6*sPX;
   const gdx = Math.round(Math.cos(qa)), gdy = Math.round(Math.sin(qa));
   ctx.fillStyle = '#dcdcdc';
@@ -1216,13 +1262,15 @@ const y0 = Math.round(p.y - 6*sPX);
     ctx.fillRect(px-1*sPX, py-1*sPX, 2*sPX, 2*sPX);
     tipX = px; tipY = py;
   }
-  // muzzle flash
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- muzzle flash
+  
   if (p.muzzleT > 0){
   ctx.fillStyle = '#ffe27a';
   ctx.fillRect(Math.round(tipX-0.5*sPX), Math.round(tipY-0.5*sPX), 1*sPX, 1*sPX);
 }
 
-  // damage flash
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- damage flash
+  
   if (p.hitCooldown > 0){
   const a = Math.min(0.28, 0.22*(p.hitCooldown/0.35));
   if (a > 0.01){
@@ -1233,7 +1281,8 @@ const y0 = Math.round(p.y - 6*sPX);
   }
 }
 
-  // shield ring (same as before)
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- shield ring (same as before)
+  
   if(s.shieldHP>0){
     const pulse = 0.85 + 0.15*Math.sin(s.time*6);
     ctx.strokeStyle='rgba(100,170,255,.85)'; ctx.lineWidth=2;
@@ -1287,28 +1336,33 @@ const y0 = Math.round(p.y - 6*sPX);
 s.bots.forEach(b => { if ((b.spawnT||0) > 0) drawTelegraph(b); });
 
 
-    // player (8-bit cat)
+    // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- player (8-bit cat)
+
 const p=s.player;
 const ang=Math.atan2(s.mouse.y-p.y,s.mouse.x-p.x);
 drawPlayerCat8bit(p, ang);
 
-    // bots (8-bit style)
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- bots (8-bit style)
+    
 s.bots.forEach(b=>{
   drawBot8bit(b);
 });
 
-    // bullets / particles / explosions
+    // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- bullets / particles / explosions
+
     s.bullets.forEach(b=>{ ctx.fillStyle=b.owner==='player'?'#e6ff71':(b.boss?'#ffb1b1':'#ffa8a3'); ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); });
     s.particles.forEach(pt=>{ ctx.fillStyle=pt.color; ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill(); });
     s.explosions.forEach(ex=>{ const t=ex.t/ex.dur; const r=ex.r0+(ex.r1-ex.r0)*t, a=1-t; ctx.save(); ctx.globalAlpha=a*0.9; ctx.strokeStyle=ex.color; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(ex.x,ex.y,r,0,Math.PI*2); ctx.stroke(); ctx.globalAlpha=a*0.35; ctx.fillStyle=ex.color; ctx.beginPath(); ctx.arc(ex.x,ex.y,r*0.6,0,Math.PI*2); ctx.fill(); ctx.restore(); });
 
-    // overlays
+    // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- overlays
+
     ctx.textAlign='center'; ctx.textBaseline = 'middle';
     if(s.levelUpFlash>0 && Math.floor(s.time*6)%2===0){ ctx.font='bold 28px ui-sans-serif,system-ui'; ctx.fillStyle='#fff'; ctx.fillText('Level Up!', W/2, MAP_MARGIN+34); }
     if(s.banner){ const alpha=1-Math.max(0,(s.banner.t/s.banner.dur)-0.6); ctx.globalAlpha=Math.max(0,alpha); ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 40px ui-sans-serif,system-ui'; ctx.fillText(s.banner.text, W/2, H/2); ctx.globalAlpha=1; }
     ctx.restore();
 
-    // Menu/intro overlays
+    // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Menu/intro overlays
+
     ctx.setTransform(1,0,0,1,0,0);
     if(s.mode==='intro'){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; const t=s.time; const a=Math.min(1,t/0.5)*(t<1.2?1:Math.max(0,2-t)); ctx.globalAlpha=a; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText('Press Start', W/10, H/6-10); ctx.globalAlpha=Math.max(0,a*0.8); ctx.font='16px ui-sans-serif,system-ui'; ctx.fillText('', W/2, H/2+22); ctx.globalAlpha=1; } else if(s.mode==='countdown'){ ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#fff'; ctx.font='bold 48px ui-sans-serif,system-ui'; ctx.fillText(String(Math.max(1,Math.ceil(s.countdown))), W/2, H/2); }
   }
@@ -1339,7 +1393,8 @@ s.bots.forEach(b=>{
     const name = sanitizeName(nameInput.value);
     try { localStorage.setItem(LS_NAME, name); } catch {}
 
-    // --- Local boards (keep existing behavior)
+    // --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------  Local boards (keep existing behavior)
+    
     const entry = { name, score:s.score, level:s.level, accuracy:acc, ts:Date.now() };
     const t2 = [...today, entry].sort((a,b)=>b.score-a.score).slice(0,8);
     const a2 = [...all, entry].sort((a,b)=>b.score-a.score).slice(0,10);
@@ -1347,7 +1402,8 @@ s.bots.forEach(b=>{
     renderBoards(a2, t2);
     renderRightTop10();
 
-    // --- Feedback while saving online
+    // -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Feedback while saving online
+    
     saveBtn.disabled = true;
     const prevLabel = saveBtn.textContent;
     saveBtn.textContent = "Saving…";
@@ -1361,7 +1417,7 @@ s.bots.forEach(b=>{
           accuracy: acc,
           name
         });
-        await window.mtLoadGlobalTop?.(); // refresh right panel from Firebase
+        await window.mtLoadGlobalTop?.(); // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- refresh right panel from Firebase
         saveNote.textContent = "Saved locally + online ✔";
       } else {
         saveNote.textContent = "Saved locally ✔ (Firebase not detected)";
@@ -1373,7 +1429,8 @@ s.bots.forEach(b=>{
       saveBtn.textContent = prevLabel || "Save to local board";
     }
 
-    // Hide popup and restart game
+    // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Hide popup and restart game
+    
     hof.style.display = 'none';
     startGame();
   };
@@ -1393,12 +1450,13 @@ function fitStage(){
   const vw = (window.visualViewport?.width ?? window.innerWidth);
   const vh = (window.visualViewport?.height ?? window.innerHeight);
   const sRaw = Math.min(vw / STAGE_W, vh / STAGE_H);
-  const s = sRaw * HEADROOM; // slightly less than the tight fit
+  const s = sRaw * HEADROOM; // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- slightly less than the tight fit
   shellEl.style.transform = `scale(${s})`;
 }
 
 
-// keep it fitted on resizes / orientation changes / mobile chrome UI changes
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- keep it fitted on resizes / orientation changes / mobile chrome UI changes
+  
 window.addEventListener('resize', fitStage, { passive:true });
 window.visualViewport?.addEventListener('resize', fitStage);
 fitStage();
@@ -1408,7 +1466,8 @@ fitStage();
 
   function toLocal(e){ const r=cvs.getBoundingClientRect(); s.mouse.x=(e.clientX-r.left)*(W/r.width); s.mouse.y=(e.clientY-r.top)*(H/r.height); }
 
-  // mouse: no more click-to-restart
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- mouse: no more click-to-restart
+  
   window.addEventListener('mousedown', (e) => {
     s.mouse.down = true; toLocal(e);
     if (s.mode === 'intro') { s.mode = 'menu'; stopAllMusic(); }
@@ -1416,7 +1475,8 @@ fitStage();
   window.addEventListener('mouseup',()=>s.mouse.down=false);
   window.addEventListener('mousemove', toLocal);
 
-  // keyboard: remove R/SPACE starts
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- keyboard: remove R/SPACE starts
+  
   window.addEventListener('keydown', (e) => {
     const k=e.key.toLowerCase();
     if (!e.repeat) s.keys[k]=true;
@@ -1426,7 +1486,8 @@ fitStage();
   });
   window.addEventListener('keyup',e=>{ s.keys[e.key.toLowerCase()]=false; });
 
-  // buttons: start / restart
+  // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- buttons: start / restart
+  
   btnStart.addEventListener('click', () => { if (s.mode!=='playing' && s.mode!=='countdown') startGame(); });
   btnRestart.addEventListener('click', () => { startGame(); });
 
@@ -1462,7 +1523,8 @@ const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
 
-// --- status indicator in UI + console ---
+// -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- status indicator in UI + console 
+  
 const lbNote = document.getElementById("lbNote");
 if (lbNote) lbNote.textContent = "Connecting to online leaderboard…";
 console.log("[Firebase] init", app.options.projectId);
